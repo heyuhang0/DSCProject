@@ -19,8 +19,12 @@ type server struct {
 	db                  *leveldb.DB
 }
 
-func NewServer(id int, allServerID []int, allServerInstance []pb.KeyValueStoreInternalClient, numDescendants int, db *leveldb.DB) *server {
-	return &server{id:id, allServerID: allServerID, otherServerInstance:allServerInstance, numDescendants: numDescendants, db: db}
+func (s *server) SetOtherServerInstance(otherServerInstance []pb.KeyValueStoreInternalClient) {
+	s.otherServerInstance = otherServerInstance
+}
+
+func NewServer(id int, allServerID []int, numDescendants int, db *leveldb.DB) *server {
+	return &server{id:id, allServerID: allServerID, numDescendants: numDescendants, db: db}
 }
 
 func indexOf(id int, data []int) int {
@@ -102,13 +106,16 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
 	log.Println("Received PUT request from clients")
 	descendants, err := s.GetDescendants()
+	log.Println(descendants)
 	if err != nil {
 		return nil, err
 	}
 	err = s.db.Put(req.Key, req.Object, nil)
+	log.Println("finish put local")
 	for _, v := range descendants {
 		reqRep := pb.PutRepRequest{Key: req.Key, Object: req.Object}
-		_, err := v.PutRep(ctx, &reqRep)
+		_, err := v.PutRep(context.Background(), &reqRep)
+		log.Printf("finish put remote %v error %v", v, err)
 		if err != nil {
 			return nil, err
 		}

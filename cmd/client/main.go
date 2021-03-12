@@ -5,11 +5,10 @@ import (
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
 	"google.golang.org/grpc"
 	"log"
-	"time"
 )
 
 const (
-	address = "localhost:50051"
+	address = "localhost:6000"
 )
 
 func main() {
@@ -22,8 +21,7 @@ func main() {
 	c := pb.NewKeyValueStoreClient(conn)
 
 	// Basic Test
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+	ctx := context.Background()
 
 	_, err = c.Put(ctx, &pb.PutRequest{
 		Key:    []byte("hello"),
