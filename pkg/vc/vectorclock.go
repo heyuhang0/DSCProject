@@ -1,10 +1,8 @@
 package vc
 
-// NewVectorClock
-// MergeClock
-// Advance
-// ToDTO
-// FromDTO
+import (
+	pb "github.com/heyuhang0/DSCProject/pkg/dto"
+)
 
 type vclock map[int]int // vector clock type
 
@@ -24,7 +22,7 @@ func (selfclock vclock) MergeClock(machineID int, otherclock vclock) bool {
 			if val > v {
 				result = true
 			} else if val == v {
-				// After means more than or equal, >=,
+				// After means more than or equal, >=
 				// but CANT be the case where all elements are equal
 				numOfEqual++
 			} else {
@@ -48,10 +46,19 @@ func (selfclock vclock) Advance(machineID int) {
 	selfclock[machineID]++
 }
 
-func ToDTO() {
-
+func ToDTO(data vclock) *pb.VectorClock {
+	var result map[int64]int64
+	for k, v := range data {
+		result[int64(k)] = int64(v)
+	}
+	return &pb.VectorClock{Vclock: result}
 }
 
-func FromDTO() {
-
+func FromDTO(vc *pb.VectorClock) vclock {
+	data := vc.Vclock
+	var result vclock
+	for k, v := range data {
+		result[int(k)] = int(v)
+	}
+	return result
 }
