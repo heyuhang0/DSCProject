@@ -20,7 +20,7 @@ func NewVectorClock(machineID int) vclock {
 }
 
 func (selfclock vclock) MergeClock(machineID int, otherclock vclock) bool {
-	// MAP has no order
+	// Be careful that map has no order
 	result := false
 	numOfEqual := 0
 	// merge first
@@ -53,4 +53,12 @@ func (selfclock vclock) MergeClock(machineID int, otherclock vclock) bool {
 
 func (selfclock vclock) Advance(machineID int) {
 	selfclock[machineID]++
+}
+
+func ToDTO() {
+
+}
+
+func FromDTO() {
+
 }

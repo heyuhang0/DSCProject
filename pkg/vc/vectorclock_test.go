@@ -57,6 +57,32 @@ func TestVclock_MergeClock2(t *testing.T) {
 	}
 }
 
+func TestVclock_MergeClock3(t *testing.T) {
+	// Test detection of causality violation
+	// prepare two vector clocks
+	c1 := vclock{1: 3, 2: 5, 4: 1} // local clock
+	c2 := vclock{1: 2, 2: 5}
+	expected := true
+
+	actual := c1.MergeClock(1, c2)
+	if actual != expected {
+		t.Errorf("MergeClock(%v) = %v; expected %v", c2, actual, expected)
+	}
+}
+
+func TestVclock_MergeClock4(t *testing.T) {
+	// Test detection of causality violation
+	// prepare two vector clocks
+	c1 := vclock{1: 3, 2: 5, 4: 1} // local clock
+	c2 := vclock{1: 3, 2: 6}
+	expected := false
+
+	actual := c1.MergeClock(1, c2)
+	if actual != expected {
+		t.Errorf("MergeClock(%v) = %v; expected %v", c2, actual, expected)
+	}
+}
+
 func TestVclock_Advance(t *testing.T) {
 	c1 := vclock{1: 3, 2: 5}
 
