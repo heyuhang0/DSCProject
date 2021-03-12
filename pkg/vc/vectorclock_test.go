@@ -1,4 +1,4 @@
-package ch
+package vc
 
 import "testing"
 
