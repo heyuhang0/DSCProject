@@ -1,0 +1,26 @@
+//go:generate protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative ./pkg/dto/dto.proto
+
+syntax = "proto3";
+option go_package = "github.com/heyuhang0/DSCProject/pkg/dto";
+package dto;
+
+service KeyValueStore {
+  rpc Put (PutRequest) returns (PutResponse) {}
+  rpc Get (GetRequest) returns (GetResponse) {}
+}
+
+message PutRequest {
+  bytes key = 1;
+  bytes object = 2;
+}
+
+message PutResponse {
+}
+
+message GetRequest {
+  bytes key = 1;
+}
+
+message GetResponse {
+  bytes object = 1;
+}
