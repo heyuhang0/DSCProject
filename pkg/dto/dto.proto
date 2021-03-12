@@ -24,3 +24,7 @@ message GetRequest {
 message GetResponse {
   bytes object = 1;
 }
+
+message VectorClock {
+  map<int64,int64> vclock = 1;
+}
