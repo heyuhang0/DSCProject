@@ -1,0 +1,9 @@
+{
+  "NumServer": 5,
+  "NumDescendants": 2,
+  "Ids": [5001,5002,5003,5004,5005],
+  "ServerPortInternal": [5000, 5002, 5003, 5004, 5005],
+  "ServerPortExternal": [6000, 6002, 6003, 6004, 6005],
+  "ServerIPInternal": ["localhost", "localhost", "localhost", "localhost", "localhost"],
+  "ServerIPExternal": ["localhost", "localhost", "localhost", "localhost", "localhost"]
+}
