@@ -72,26 +72,30 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 
 	var vals [][]byte
 	data, err := s.db.Get(req.Key, nil)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		vals = append(vals, data)
 	}
-	vals = append(vals, data)
 
 	for _, v := range descendants {
 		reqRep := pb.GetRepRequest{Key: req.Key}
 		dataRep, err := v.GetRep(ctx, &reqRep)
+		// skip nil value for now
+		if err != nil {
+			continue
+		}
 		log.Println("Received replica from peer server")
 		vals = append(vals, dataRep.Object)
-		if err != nil {
-			return nil, err
-		}
+	}
+
+	if len(vals) == 0 {
+		return nil, errors.New("key not found")
 	}
 
 	// check if all the element are same and return different things
 	if allSame(vals) {
-		return &pb.GetResponse{Object: data}, nil
+		return &pb.GetResponse{Object: vals[0]}, nil
 	}else {
-		return &pb.GetResponse{Object: data}, nil
+		return &pb.GetResponse{Object: vals[0]}, nil
 	}
 }
 
