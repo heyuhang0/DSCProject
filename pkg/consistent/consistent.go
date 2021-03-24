@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/heyuhang0/DSCProject/pkg/dto"
 	"hash/fnv"
 	"sort"
 	"sync"
@@ -32,13 +33,14 @@ func (r uint64Slice) Len() int           { return len(r) }
 func (r uint64Slice) Less(i, j int) bool { return r[i] < r[j] }
 func (r uint64Slice) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
 
+func defaultHash(key []byte) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write(key)
+	return h.Sum64()
+}
+
 func NewConsistent(numVNodes int) *Consistent {
-	hash := func(key []byte) uint64 {
-		h := fnv.New64a()
-		_, _ = h.Write(key)
-		return h.Sum64()
-	}
-	return NewConsistentWithHash(numVNodes, hash)
+	return NewConsistentWithHash(numVNodes, defaultHash)
 }
 
 func NewConsistentWithHash(numVNodes int, hash func(key []byte) uint64) *Consistent {
@@ -221,4 +223,30 @@ func (r *Consistent) GetNodes(key interface{}, num int) []uint64 {
 		nodeSet[node] = nil
 	}
 	return nodes
+}
+
+func (r *Consistent) ToDTO() *dto.Consistent {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	nodes := make([]uint64, 0, len(r.nodeToVNodes))
+	for node := range r.nodeToVNodes {
+		nodes = append(nodes, node)
+	}
+	return &dto.Consistent{
+		NumVNodes: int64(r.numVNodes),
+		Nodes:     nodes,
+	}
+}
+
+func FromDTO(dto *dto.Consistent) *Consistent {
+	return FromDTOWithHash(dto, defaultHash)
+}
+
+func FromDTOWithHash(dto *dto.Consistent, hash func(key []byte) uint64) *Consistent {
+	consistent := NewConsistentWithHash(int(dto.NumVNodes), hash)
+	for _, node := range dto.Nodes {
+		consistent.AddNode(node)
+	}
+	return consistent
 }

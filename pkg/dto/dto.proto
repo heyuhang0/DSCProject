@@ -45,3 +45,8 @@ message GetRepRequest {
 message GetRepResponse {
   bytes object = 1;
 }
+
+message Consistent {
+  int64 numVNodes = 1;
+  repeated uint64 nodes = 2 [packed = true];
+}
