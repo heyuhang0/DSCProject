@@ -1,6 +1,7 @@
 package consistent
 
 import (
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"sort"
 	"testing"
@@ -106,4 +107,74 @@ func TestConsistent_GetNodes(t *testing.T) {
 	assert.Equal(t, result1, consistent.GetNodes(1, 1))
 	assert.Equal(t, result2, consistent.GetNodes(2, 2))
 	assert.Equal(t, result3, consistent.GetNodes(3, 3))
+}
+
+func BenchmarkConsistent_GetNodes(b *testing.B) {
+	consistent := NewConsistent(5)
+	for i := 0; i < 5; i ++ {
+		consistent.AddNode(uint64(i))
+	}
+	for i := 0; i < b.N; i++ {
+		consistent.GetNodes(i, 3)
+	}
+}
+
+func TestConsistent_Redistribute(t *testing.T) {
+	consistent := NewConsistent(1000)
+	for i := 0; i < 5; i ++ {
+		consistent.AddNode(uint64(i))
+	}
+
+	// helpers
+	getMapping := func() map[int]uint64 {
+		mapping := make(map[int]uint64)
+		for key := 0; key < 10000; key ++ {
+			mapping[key] = consistent.GetNode(key)
+		}
+		return mapping
+	}
+	countLoad := func(mapping map[int]uint64) map[uint64]int {
+		load := make(map[uint64]int)
+		for _, node := range mapping {
+			if _, ok := load[node]; ok {
+				load[node] += 1
+				continue
+			}
+			load[node] = 1
+		}
+		return load
+	}
+	countRedistributed := func(mappingBefore, mappingAfter map[int]uint64) map[uint64]int {
+		redistributed := make(map[uint64]int)
+		for k, nodeBefore := range mappingBefore {
+			nodeAfter := mappingAfter[k]
+			if nodeBefore != nodeAfter {
+				if _, ok := redistributed[nodeBefore]; ok {
+					redistributed[nodeBefore] += 1
+					continue
+				}
+				redistributed[nodeBefore] = 1
+			}
+		}
+		return redistributed
+	}
+
+	// 5 nodes
+	mapping5 := getMapping()
+	fmt.Println("With 5 nodes:")
+	fmt.Println("Nodes Load\t\t", countLoad(mapping5))
+
+	// add one node (6 nodes)
+	consistent.AddNode(uint64(5))
+	mapping6 := getMapping()
+	fmt.Println("With 6 nodes:")
+	fmt.Println("Nodes Load\t\t", countLoad(mapping6))
+	fmt.Println("Redistributed\t", countRedistributed(mapping5, mapping6))
+
+	// add one node (7 nodes)
+	consistent.AddNode(uint64(6))
+	mapping7 := getMapping()
+	fmt.Println("With 7 nodes:")
+	fmt.Println("Nodes Load\t\t", countLoad(mapping7))
+	fmt.Println("Redistributed\t", countRedistributed(mapping6, mapping7))
 }
