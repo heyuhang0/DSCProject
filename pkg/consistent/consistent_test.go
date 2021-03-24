@@ -110,8 +110,8 @@ func TestConsistent_GetNodes(t *testing.T) {
 }
 
 func BenchmarkConsistent_GetNodes(b *testing.B) {
-	consistent := NewConsistent(5)
-	for i := 0; i < 5; i ++ {
+	consistent := NewConsistent(10)
+	for i := 0; i < 10; i ++ {
 		consistent.AddNode(uint64(i))
 	}
 	for i := 0; i < b.N; i++ {
@@ -120,7 +120,7 @@ func BenchmarkConsistent_GetNodes(b *testing.B) {
 }
 
 func TestConsistent_Redistribute(t *testing.T) {
-	consistent := NewConsistent(1000)
+	consistent := NewConsistent(10)
 	for i := 0; i < 5; i ++ {
 		consistent.AddNode(uint64(i))
 	}

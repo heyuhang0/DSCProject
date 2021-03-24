@@ -127,8 +127,8 @@ func (r *Consistent) AddNode(nodeID uint64) {
 			//
 			// Due to the low possibility, just let it CRASH.
 			// Because handling it may cause more problems,
-			// for example, adding nodes in different order may result it
-			// inconsistent hash function if rehashing is used
+			// for example, if rehashing is used, adding nodes in different
+			// order may result in inconsistent hash function
 			panic("duplicated vNode")
 		}
 		vNodes[i] = vNodeID
