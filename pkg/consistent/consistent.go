@@ -115,8 +115,21 @@ func (r *Consistent) AddNode(nodeID uint64) {
 	for i := range vNodes {
 		vNodeID = r.hashUInt64(vNodeID)
 		if _, exists := r.vNodeToNode[vNodeID]; exists {
-			// FIXME
-			panic("duplicate vNode")
+			// This Case Should NOT Happen in Practice
+			//
+			// Since we are using 64-bit hash (assume uniformed),
+			// even with 6100 virtual nodes,
+			// the probability of collision is < 10^(-12).
+			// see Birthday Attack for more details
+			//
+			// And the consistent hashing is only controlled by the system,
+			// so it is exposed to external hash collision attack.
+			//
+			// Due to the low possibility, just let it CRASH.
+			// Because handling it may cause more problems,
+			// for example, adding nodes in different order may result it
+			// inconsistent hash function if rehashing is used
+			panic("duplicated vNode")
 		}
 		vNodes[i] = vNodeID
 
