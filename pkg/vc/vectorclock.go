@@ -7,15 +7,19 @@ import (
 type vclock map[int]int // vector clock type
 
 func NewVectorClock(machineID int) vclock {
-	return vclock{machineID: 0}
+	return vclock{machineID: 0, -1: machineID}
 }
 
-func (selfclock vclock) MergeClock(machineID int, otherclock vclock) bool {
+func (selfclock vclock) MergeClock(otherclock vclock) bool {
 	// Be careful that map has no order
 	result := false
 	numOfEqual := 0
 	// merge first
 	for k, v := range otherclock {
+		if k == -1 {
+			// -1 key is the machineID
+			continue
+		}
 		if val, ok := selfclock[k]; ok {
 			// If the local clock is after (in line with the vector comparison)
 			// the message clock, then a (potential) causality violation is flagged
@@ -31,10 +35,11 @@ func (selfclock vclock) MergeClock(machineID int, otherclock vclock) bool {
 		} else {
 			// this key from otherclock is not in selfclock
 			selfclock[k] = v
+
 		}
 	}
 	// advance clock now
-	selfclock.Advance(machineID)
+	selfclock.Advance()
 	// need to return causality violation
 	if numOfEqual == len(selfclock) {
 		result = true
@@ -42,7 +47,8 @@ func (selfclock vclock) MergeClock(machineID int, otherclock vclock) bool {
 	return result
 }
 
-func (selfclock vclock) Advance(machineID int) {
+func (selfclock vclock) Advance() {
+	machineID := selfclock[-1]
 	selfclock[machineID]++
 }
 
