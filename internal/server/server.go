@@ -38,6 +38,7 @@ type server struct {
 	numRead             int
 	numWrite            int
 	numReplica          int
+	timeout             time.Duration
 	db                  *leveldb.DB
 }
 
@@ -50,8 +51,15 @@ func (s *server) SetConsistent(consistent Consistent) {
 }
 
 // create a new server
-func NewServer(id int, allServerID []int, numReplica, numRead, numWrite int, db *leveldb.DB) *server {
-	return &server{id: id, allServerID: allServerID, numReplica: numReplica, numRead: numRead, numWrite: numWrite, db: db}
+func NewServer(id int, allServerID []int, numReplica, numRead, numWrite int, timeout time.Duration, db *leveldb.DB) *server {
+	return &server{
+		id: id,
+		allServerID: allServerID,
+		numReplica: numReplica,
+		numRead: numRead,
+		numWrite: numWrite,
+		timeout: timeout,
+		db: db}
 }
 
 // contains
@@ -147,7 +155,10 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 		}
 		go func(peerServerId int, peerServer pb.KeyValueStoreInternalClient, notifyChan chan GetRepMessage) {
 			reqRep := pb.GetRepRequest{Key: req.Key}
-			dataRep, err := peerServer.GetRep(ctx, &reqRep)
+			clientDeadline := time.Now().Add(s.timeout)
+			ctxRep, cancel := context.WithDeadline(ctx, clientDeadline)
+			defer cancel()
+			dataRep, err := peerServer.GetRep(ctxRep, &reqRep)
 			// notify main routine
 			if err != nil {
 				notifyChan <- GetRepMessage{peerServerId, err, nil}
@@ -169,9 +180,10 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 			} else if notifyMsg.err == leveldb.ErrNotFound {
 				successCount++
 			} else {
-				errorMsg += "\n" + notifyMsg.err.Error()
+				errorMsg = errorMsg + notifyMsg.err.Error() + ";"
+				log.Printf("server %v: %v", notifyMsg.id, notifyMsg.err.Error())
 			}
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(s.timeout):
 			break
 		}
 		if successCount >= 3 {
@@ -235,7 +247,11 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 		}
 		go func(peerServerId int, peerServer pb.KeyValueStoreInternalClient) {
 			reqRep := pb.PutRepRequest{Key: req.Key, Object: req.Object}
-			_, err := peerServer.PutRep(context.Background(), &reqRep)
+			clientDeadline := time.Now().Add(s.timeout)
+			log.Println(time.Now(), s.timeout, clientDeadline)
+			ctxRep, cancel := context.WithDeadline(ctx, clientDeadline)
+			defer cancel()
+			_, err := peerServer.PutRep(ctxRep, &reqRep)
 			log.Printf("finish put remote %v error %v", peerServer, err)
 			notifyChan <- PutRepMessage{peerServerId, err}
 		}(peerServerId, peerServer)
@@ -246,12 +262,14 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 	for i := 0; i < len(preferenceList); i++ {
 		select {
 		case notifyMsg := <-notifyChan:
+
 			if notifyMsg.err == nil {
 				successCount++
 			} else {
-				errorMsg += "\n" + notifyMsg.err.Error()
+				errorMsg =  errorMsg + notifyMsg.err.Error() + ";"
+				log.Printf("server %v: %v", notifyMsg.id, notifyMsg.err.Error())
 			}
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(s.timeout):
 			break
 		}
 		if successCount >= 3 {

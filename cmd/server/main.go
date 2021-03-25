@@ -17,13 +17,14 @@ import (
 )
 
 type Configuration struct {
-	NumServer int
-	NumReplica int
-	NumRead int
-	NumWrite int
-	Ids    []int
-	ServerPortInternal   []int
-	ServerPortExternal   []int
+	NumServer          int
+	NumReplica         int
+	NumRead            int
+	NumWrite           int
+	Timeout            int
+	Ids                []int
+	ServerPortInternal []int
+	ServerPortExternal []int
 	ServerIPInternal   []string
 	ServerIPExternal   []string
 }
@@ -32,7 +33,7 @@ func main() {
 	// can take: 1, 2, ..., numServer
 	serverIndexStr := os.Args[1]
 	serverIndex, err := strconv.Atoi(serverIndexStr)
-	serverIndex --
+	serverIndex--
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -58,6 +59,8 @@ func main() {
 	externalPorts := config.ServerPortExternal
 	internalIP := config.ServerIPInternal
 	externalIP := config.ServerIPExternal
+	timeout := time.Millisecond * time.Duration(config.Timeout)
+	log.Println(timeout)
 
 	if serverIndex > numServer {
 		os.Exit(1)
@@ -92,7 +95,7 @@ func main() {
 	sExternal := grpc.NewServer()
 	sInternal := grpc.NewServer()
 	// register to grpc
-	newServer := server.NewServer(nodeId, Ids, numReplica, numRead, numWrite, db)
+	newServer := server.NewServer(nodeId, Ids, numReplica, numRead, numWrite, timeout, db)
 	pb.RegisterKeyValueStoreServer(sExternal, newServer)
 	pb.RegisterKeyValueStoreInternalServer(sInternal, newServer)
 	go func() {
@@ -115,9 +118,9 @@ func main() {
 		if nodeId == Ids[j] {
 			continue
 		}
-		log.Println("creating connection to others ",  nodeId, Ids[j])
+		log.Println("creating connection to others ", nodeId, Ids[j])
 		wg.Add(1)
-		go func(otherIdIndex int){
+		go func(otherIdIndex int) {
 			defer wg.Done()
 			peerServerId := Ids[otherIdIndex]
 			address := internalIP[otherIdIndex] + ":" + strconv.Itoa(internalPorts[otherIdIndex])
@@ -136,7 +139,6 @@ func main() {
 	log.Println(clientForServer)
 	newServer.SetOtherServerInstance(clientForServer)
 	log.Println("finished setting server ", nodeId)
-
 
 	time.Sleep(10000000000 * time.Millisecond)
 }
