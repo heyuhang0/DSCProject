@@ -125,7 +125,8 @@ func (r *Consistent) AddNode(nodeID uint64) {
 			// see Birthday Attack for more details
 			//
 			// And the consistent hashing is only controlled by the system,
-			// so it is exposed to external hash collision attack.
+			// and only modified when changing cluster configuration,
+			// so it is not exposed to external hash collision attack.
 			//
 			// Due to the low possibility, just let it CRASH.
 			// Because handling it may cause more problems,
