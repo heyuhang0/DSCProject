@@ -84,4 +84,13 @@ func TestVclock_Advance(t *testing.T) {
 	}
 }
 
+func TestToDTO(t *testing.T) {
+	c1 := vclock{1: 3, 2: 5, -1: 1}
+	realDTO := ToDTO(c1)
+	realVC := FromDTO(realDTO)
+	if !reflect.DeepEqual(c1, realVC) {
+		t.Errorf("MergeClock(%v) = %v; expected %v", c1, c1, c1)
+	}
+}
+
 //func Test

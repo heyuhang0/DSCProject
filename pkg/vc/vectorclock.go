@@ -53,7 +53,7 @@ func (selfclock vclock) Advance() {
 }
 
 func ToDTO(data vclock) *pb.VectorClock {
-	var result map[int64]int64
+	result := make(map[int64]int64)
 	for k, v := range data {
 		result[int64(k)] = int64(v)
 	}
@@ -62,7 +62,7 @@ func ToDTO(data vclock) *pb.VectorClock {
 
 func FromDTO(vc *pb.VectorClock) vclock {
 	data := vc.Vclock
-	var result vclock
+	result := make(vclock)
 	for k, v := range data {
 		result[int(k)] = int(v)
 	}
