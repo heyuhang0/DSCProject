@@ -9,6 +9,7 @@ import (
 	"log"
 	"strconv"
 	"time"
+	dberrors "github.com/syndtr/goleveldb/leveldb/errors"
 )
 
 type GetRepMessage struct {
@@ -127,7 +128,7 @@ func (s *server) GetMockPreferenceList(key []byte) ([]int, error) {
 
 // get key, issued from client
 func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
-	log.Println("Received GET request from clients")
+	log.Printf("Received GET request from clients for key %v\n", string(req.Key))
 	preferenceList, errGetPref := s.GetMockPreferenceList(req.Key)
 	if errGetPref != nil {
 		return nil, errGetPref
@@ -144,6 +145,7 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 		// if it is server it self
 		if peerServerId == s.id {
 			go func(notifyChan chan GetRepMessage) {
+				log.Printf("Getting key {%v} from myself\n", string(req.Key))
 				data, err := s.db.Get(req.Key, nil)
 				notifyChan <- GetRepMessage{s.id, err, data}
 			}(notifyChan)
@@ -177,7 +179,7 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 			if notifyMsg.err == nil {
 				successCount++
 				vals = append(vals, notifyMsg.data)
-			} else if notifyMsg.err == leveldb.ErrNotFound {
+			} else if notifyMsg.err == leveldb.ErrNotFound || notifyMsg.err == dberrors.ErrNotFound{
 				successCount++
 			} else {
 				errorMsg = errorMsg + notifyMsg.err.Error() + ";"
@@ -236,7 +238,7 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 		if peerServerId == s.id {
 			go func() {
 				err := s.db.Put(req.Key, req.Object, nil)
-				log.Println("finish put local")
+				log.Printf("Putting key {%v}, val {%v} to local", req.Key, req.Object)
 				notifyChan <- PutRepMessage{s.id, err}
 			}()
 			continue
@@ -262,12 +264,11 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 	for i := 0; i < len(preferenceList); i++ {
 		select {
 		case notifyMsg := <-notifyChan:
-
 			if notifyMsg.err == nil {
 				successCount++
 			} else {
 				errorMsg =  errorMsg + notifyMsg.err.Error() + ";"
-				log.Printf("server %v: %v", notifyMsg.id, notifyMsg.err.Error())
+				log.Printf("server %v: %v\n", notifyMsg.id, notifyMsg.err.Error())
 			}
 		case <-time.After(s.timeout):
 			break
@@ -285,7 +286,7 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 
 // get replica issued from server responsible for the get operation
 func (s *server) GetRep(ctx context.Context, req *pb.GetRepRequest) (*pb.GetRepResponse, error) {
-	log.Println("getting replica")
+	log.Printf("Getting replica for key: %v\n", string(req.Key))
 	data, err := s.db.Get(req.Key, nil)
 	if err != nil {
 		return nil, err
@@ -295,7 +296,7 @@ func (s *server) GetRep(ctx context.Context, req *pb.GetRepRequest) (*pb.GetRepR
 
 // put replica issued from server responsible for the put operation
 func (s *server) PutRep(ctx context.Context, req *pb.PutRepRequest) (*pb.PutRepResponse, error) {
-	log.Println("putting replica")
+	log.Printf("Putting replica, key {%v}, val {%v}", string(req.Key), string(req.Object))
 	err := s.db.Put(req.Key, req.Object, nil)
 	return &pb.PutRepResponse{}, err
 }
