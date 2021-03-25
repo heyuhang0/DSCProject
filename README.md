@@ -1,40 +1,51 @@
 # 50.041 Course Project
 
 - cmd
-    - client
-    - server
-    
+  - client
+  - server
+
 - internal
-  
-    Files for this project only.
-    - server
+
+  Files for this project only.
+  - server
 
 - pkg
-  
-    Packages used in this project
+
+  Packages used in this project
 ----
-## CLI: Command Line Interface
+## Interactive Shell
+### Features
+1. GET
+2. PUT
+3. Request Per Second
+4. Latency Percentile
+
 ### Getting Started
 
-**Start the server**
-
-```go run cmd/server/main.go```
+**Build & Start up all the servers**
+```go
+go build -o server-main cmd/server/main.go
+./server-main n (where n is the server number)
+```
+**Build & Start up client**
+```go
+go build -o simshell simshell.go
+./simshell
+```
 
 #### GET
 **Description: For Client to send a GET request to Server**
 ```
 Input Argument:
-1. Address of Server (type string) i.e localhost:50051
+1. Address of Server (type string) i.e localhost:6001
 2. Key (type string)
 
 Expected Response: 
 GET SUCCESSFUL, {key, value}
-
-Command:
-go run internal/command/main.go get <ADDRESS> <KEY>
-
-Example:
-go run internal/command/main.go get localhost:50051 hello
+```
+```bash
+command: get <address> <key>
+example: get localhost:6001 hello
 ```
 
 #### PUT
@@ -47,10 +58,25 @@ Input Argument:
 
 Expected Response: 
 PUT SUCCESSFUL, {key, value}
+```
+```bash
+command: put <address> <key> <value>
+example: get localhost:6001 hello prof
+```
 
-Command:
-go run internal/command/main.go put <ADDRESS> <KEY> <VALUE>
+#### Request Per Second
+```bash
+rps localhost:6001 hello 1000
+```
 
-Example:
-go run internal/command/main.go put localhost:50051 test_key test_value
+#### Latency Percentile
+
+Input Argument:
+1. address
+2. key
+3. no_requests
+4. percentile
+
+```bash
+latencytime localhost:6001 hello 1000 99
 ```
