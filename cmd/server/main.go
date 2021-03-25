@@ -12,12 +12,15 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
 type Configuration struct {
 	NumServer int
-	NumDescendants int
+	NumReplica int
+	NumRead int
+	NumWrite int
 	Ids    []int
 	ServerPortInternal   []int
 	ServerPortExternal   []int
@@ -26,6 +29,7 @@ type Configuration struct {
 }
 
 func main() {
+	// can take: 1, 2, ..., numServer
 	serverIndexStr := os.Args[1]
 	serverIndex, err := strconv.Atoi(serverIndexStr)
 	serverIndex --
@@ -42,14 +46,18 @@ func main() {
 	byteValue, _ := ioutil.ReadAll(jsonFile)
 	var config Configuration
 	json.Unmarshal(byteValue, &config)
+	fmt.Println(config)
+	//os.Exit(0)
 
 	numServer := config.NumServer
+	numRead := config.NumRead
+	numWrite := config.NumWrite
+	numReplica := config.NumReplica
 	Ids := config.Ids
 	internalPorts := config.ServerPortInternal
 	externalPorts := config.ServerPortExternal
 	internalIP := config.ServerIPInternal
 	externalIP := config.ServerIPExternal
-	numDescendants := config.NumDescendants
 
 	if serverIndex > numServer {
 		os.Exit(1)
@@ -84,7 +92,7 @@ func main() {
 	sExternal := grpc.NewServer()
 	sInternal := grpc.NewServer()
 	// register to grpc
-	newServer := server.NewServer(nodeId, Ids, numDescendants, db)
+	newServer := server.NewServer(nodeId, Ids, numReplica, numRead, numWrite, db)
 	pb.RegisterKeyValueStoreServer(sExternal, newServer)
 	pb.RegisterKeyValueStoreInternalServer(sInternal, newServer)
 	go func() {
@@ -99,23 +107,33 @@ func main() {
 	}()
 
 	// create connection to other service
-	var clientForServer []pb.KeyValueStoreInternalClient
+	clientForServer := make(map[int]pb.KeyValueStoreInternalClient)
+	//clientForServer := make([]pb.KeyValueStoreInternalClient, numServer - 1, numServer - 1)
+	var wg sync.WaitGroup
 	for j := 0; j < numServer; j++ {
-		if serverIndex == j {
+		// index is the index in the list, id is the actual id
+		if nodeId == Ids[j] {
 			continue
 		}
 		log.Println("creating connection to others ",  nodeId, Ids[j])
-		address := internalIP[j] + ":" + strconv.Itoa(internalPorts[j])
-		conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
-		log.Println("dial from", nodeId, Ids[j])
-		if err != nil {
-			log.Fatalf("did not connect: %v", err)
-		}
-		//defer func() { _ = conn.Close() }()
-		c := pb.NewKeyValueStoreInternalClient(conn)
-		log.Println("connection between two server created ", nodeId, Ids[j])
-		clientForServer = append(clientForServer, c)
+		wg.Add(1)
+		go func(otherIdIndex int){
+			defer wg.Done()
+			peerServerId := Ids[otherIdIndex]
+			address := internalIP[otherIdIndex] + ":" + strconv.Itoa(internalPorts[otherIdIndex])
+			conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+			log.Println("dial from", nodeId, peerServerId)
+			if err != nil {
+				log.Fatalf("did not connect: %v", err)
+			}
+			//defer func() { _ = conn.Close() }()
+			c := pb.NewKeyValueStoreInternalClient(conn)
+			log.Println("connection between two server created ", peerServerId)
+			clientForServer[peerServerId] = c
+		}(j)
 	}
+	wg.Wait()
+	log.Println(clientForServer)
 	newServer.SetOtherServerInstance(clientForServer)
 	log.Println("finished setting server ", nodeId)
 
