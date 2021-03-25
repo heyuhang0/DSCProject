@@ -5,6 +5,7 @@ go 1.16
 require (
 	github.com/golang/protobuf v1.4.3
 	github.com/mitchellh/go-homedir v1.1.0
+	github.com/montanaflynn/stats v0.6.5
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/viper v1.7.0
 	github.com/stretchr/testify v1.7.0
