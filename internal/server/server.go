@@ -4,16 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/heyuhang0/DSCProject/pkg/consistent"
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
 	"github.com/syndtr/goleveldb/leveldb"
 	"log"
 	"strconv"
 	"sync"
 )
-
-type Consistent struct {
-	consistentStructure []int
-}
 
 type server struct {
 	pb.UnimplementedKeyValueStoreServer
@@ -22,7 +19,7 @@ type server struct {
 	allServerID []int
 	//otherServerInstance []pb.KeyValueStoreInternalClient
 	otherServerInstance map[int]pb.KeyValueStoreInternalClient
-	Consistent          Consistent
+	consistent          *consistent.Consistent
 	numDescendants      int
 	numRead             int
 	numWrite            int
@@ -34,13 +31,21 @@ func (s *server) SetOtherServerInstance(otherServerInstance map[int]pb.KeyValueS
 	s.otherServerInstance = otherServerInstance
 }
 
-func (s *server) SetConsistent(consistent Consistent) {
-	s.Consistent = consistent
-}
-
 // create a new server
-func NewServer(id int, allServerID []int, numReplica, numRead, numWrite int, db *leveldb.DB) *server {
-	return &server{id: id, allServerID: allServerID, numReplica: numReplica, numRead: numRead, numWrite: numWrite, db: db}
+func NewServer(id int, allServerID []int, numReplica, numRead, numWrite, numVNodes int, db *leveldb.DB) *server {
+	hashRing := consistent.NewConsistent(numVNodes)
+	for _, serverID := range allServerID {
+		hashRing.AddNode(uint64(serverID))
+	}
+	return &server{
+		id:          id,
+		allServerID: allServerID,
+		numReplica:  numReplica,
+		numRead:     numRead,
+		numWrite:    numWrite,
+		db:          db,
+		consistent:  hashRing,
+	}
 }
 
 // contains
@@ -73,35 +78,14 @@ func allSame(data [][]byte) bool {
 	return true
 }
 
-// not used any more
-func (s *server) GetDescendants() ([]pb.KeyValueStoreInternalClient, error) {
-	numPeerReplica := s.numReplica
-	if numPeerReplica > len(s.allServerID) {
-		return nil, errors.New("descendents number bigger than total machine number")
-	}
-	var descendants []pb.KeyValueStoreInternalClient
-	idIndex := indexOf(s.id, s.allServerID)
-	for i := 1; i <= numPeerReplica; i++ {
-		index := (idIndex + i) % len(s.allServerID)
-		if index < idIndex {
-			descendants = append(descendants, s.otherServerInstance[index])
-		} else if index > idIndex {
-			descendants = append(descendants, s.otherServerInstance[index-1])
-		}
-	}
-	return descendants, nil
-}
-
-func (s *server) GetMockPreferenceList(key []byte) ([]int, error) {
+func (s *server) GetPreferenceList(key []byte) ([]int, error) {
 	numPeerReplica := s.numReplica
 	if numPeerReplica > len(s.allServerID) {
 		return nil, errors.New("replica number bigger than total machine number")
 	}
 	var preferenceList []int
-	idIndex := indexOf(s.id, s.allServerID)
-	for i := 0; i < numPeerReplica; i++ {
-		index := (idIndex + i) % len(s.allServerID)
-		preferenceList = append(preferenceList, s.allServerID[index])
+	for _, serverID := range s.consistent.GetNodes(key, numPeerReplica) {
+		preferenceList = append(preferenceList, int(serverID))
 	}
 	return preferenceList, nil
 }
@@ -109,7 +93,7 @@ func (s *server) GetMockPreferenceList(key []byte) ([]int, error) {
 // get key, issued from client
 func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
 	log.Println("Received GET request from clients")
-	preferenceList, err := s.GetMockPreferenceList(req.Key)
+	preferenceList, err := s.GetPreferenceList(req.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +156,7 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 // Put key issued from the client
 func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
 	log.Println("Received PUT request from clients")
-	preferenceList, err := s.GetMockPreferenceList(req.Key)
+	preferenceList, err := s.GetPreferenceList(req.Key)
 	if err != nil {
 		return nil, err
 	}
