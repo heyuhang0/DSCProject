@@ -8,8 +8,19 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"log"
 	"strconv"
-	"sync"
+	"time"
 )
+
+type GetRepMessage struct {
+	id   int
+	err  error
+	data []byte
+}
+
+type PutRepMessage struct {
+	id  int
+	err error
+}
 
 type Consistent struct {
 	consistentStructure []int
@@ -109,9 +120,9 @@ func (s *server) GetMockPreferenceList(key []byte) ([]int, error) {
 // get key, issued from client
 func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
 	log.Println("Received GET request from clients")
-	preferenceList, err := s.GetMockPreferenceList(req.Key)
-	if err != nil {
-		return nil, err
+	preferenceList, errGetPref := s.GetMockPreferenceList(req.Key)
+	if errGetPref != nil {
+		return nil, errGetPref
 	}
 
 	// check if myself is in preference list
@@ -120,61 +131,86 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 		log.Println("need to forward the get request to other server, I am not in preference list")
 	}
 
-	// need numRead to finish this operation
-	var wg sync.WaitGroup
-	wg.Add(s.numReplica)
-	var vals [][]byte
-
+	notifyChan := make(chan GetRepMessage, s.numReplica)
 	for _, peerServerId := range preferenceList {
 		// if it is server it self
 		if peerServerId == s.id {
-			go func() {
-				defer wg.Done()
+			go func(notifyChan chan GetRepMessage) {
 				data, err := s.db.Get(req.Key, nil)
-				if err == nil {
-					vals = append(vals, data)
-				}
-			}()
+				notifyChan <- GetRepMessage{s.id, err, data}
+			}(notifyChan)
 			continue
 		}
 		peerServer, exist := s.otherServerInstance[peerServerId]
 		if !exist {
 			panic("peer id is not stored in server " + strconv.Itoa(s.id))
 		}
-		go func(peerServer pb.KeyValueStoreInternalClient) {
-			defer wg.Done()
+		go func(peerServerId int, peerServer pb.KeyValueStoreInternalClient, notifyChan chan GetRepMessage) {
 			reqRep := pb.GetRepRequest{Key: req.Key}
-			dataRep, errRoutine := peerServer.GetRep(ctx, &reqRep)
-			// skip nil value for now
-			if errRoutine != nil {
-				return
+			dataRep, err := peerServer.GetRep(ctx, &reqRep)
+			// notify main routine
+			if err != nil {
+				notifyChan <- GetRepMessage{peerServerId, err, nil}
+			} else {
+				notifyChan <- GetRepMessage{peerServerId, nil, dataRep.Object}
 			}
-			log.Println("Received replica from peer server")
-			vals = append(vals, dataRep.Object)
-		}(peerServer)
+		}(peerServerId, peerServer, notifyChan)
 	}
 
-	// wait for {numRead} reads to finish
-	wg.Wait()
+	var vals [][]byte
+	successCount := 0
+	errorMsg := "ERROR MESSAGE: "
+	for i := 0; i < len(preferenceList); i++ {
+		select {
+		case notifyMsg := <-notifyChan:
+			if notifyMsg.err == nil {
+				successCount++
+				vals = append(vals, notifyMsg.data)
+			} else if notifyMsg.err == leveldb.ErrNotFound {
+				successCount++
+			} else {
+				errorMsg += "\n" + notifyMsg.err.Error()
+			}
+		case <-time.After(500 * time.Millisecond):
+			break
+		}
+		if successCount >= 3 {
+			if len(vals) == 0 {
+				return &pb.GetResponse{Object: nil, SuccessStatus: pb.SuccessStatus_FULLY_SUCCESS, FoundKey: pb.FoundKey_KEY_NOT_FOUND}, nil
+			}
+			// check if all the element are same and return different things
+			if allSame(vals) {
+				return &pb.GetResponse{Object: vals[0], SuccessStatus: pb.SuccessStatus_FULLY_SUCCESS, FoundKey: pb.FoundKey_KEY_FOUND}, nil
+			} else {
+				// TODO: return the arbitrary latest value
+				return &pb.GetResponse{Object: vals[0], SuccessStatus: pb.SuccessStatus_FULLY_SUCCESS, FoundKey: pb.FoundKey_KEY_FOUND}, nil
+			}
+		}
+	}
 
+	// all server in preference list are done
+	if successCount == 0 {
+		return nil, errors.New(errorMsg)
+	}
+	// all server does not have values
 	if len(vals) == 0 {
-		return nil, errors.New("key not found")
+		return &pb.GetResponse{Object: nil, SuccessStatus: pb.SuccessStatus_PARTIAL_SUCCESS, FoundKey: pb.FoundKey_KEY_NOT_FOUND}, nil
 	}
-
 	// check if all the element are same and return different things
 	if allSame(vals) {
-		return &pb.GetResponse{Object: vals[0]}, nil
+		return &pb.GetResponse{Object: vals[0], SuccessStatus: pb.SuccessStatus_PARTIAL_SUCCESS, FoundKey: pb.FoundKey_KEY_FOUND}, nil
 	} else {
-		return &pb.GetResponse{Object: vals[0]}, nil
+		// TODO: return the arbitrary latest value
+		return &pb.GetResponse{Object: vals[0], SuccessStatus: pb.SuccessStatus_PARTIAL_SUCCESS, FoundKey: pb.FoundKey_KEY_FOUND}, nil
 	}
 }
 
 // Put key issued from the client
 func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
 	log.Println("Received PUT request from clients")
-	preferenceList, err := s.GetMockPreferenceList(req.Key)
-	if err != nil {
-		return nil, err
+	preferenceList, errGetPref := s.GetMockPreferenceList(req.Key)
+	if errGetPref != nil {
+		return nil, errGetPref
 	}
 	// check if myself is in preference list
 	if !contains(preferenceList, s.id) {
@@ -183,15 +219,13 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 	}
 
 	// need numWrite to finish the operation
-	var wg sync.WaitGroup
-	wg.Add(s.numReplica)
-
+	notifyChan := make(chan PutRepMessage, s.numReplica)
 	for _, peerServerId := range preferenceList {
 		if peerServerId == s.id {
 			go func() {
-				defer wg.Done()
-				err = s.db.Put(req.Key, req.Object, nil)
+				err := s.db.Put(req.Key, req.Object, nil)
 				log.Println("finish put local")
+				notifyChan <- PutRepMessage{s.id, err}
 			}()
 			continue
 		}
@@ -199,20 +233,36 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 		if !exist {
 			panic("peer id is not stored in server " + strconv.Itoa(s.id))
 		}
-		go func(peerServer pb.KeyValueStoreInternalClient) {
-			defer wg.Done()
+		go func(peerServerId int, peerServer pb.KeyValueStoreInternalClient) {
 			reqRep := pb.PutRepRequest{Key: req.Key, Object: req.Object}
-			_, errRoutine := peerServer.PutRep(context.Background(), &reqRep)
+			_, err := peerServer.PutRep(context.Background(), &reqRep)
 			log.Printf("finish put remote %v error %v", peerServer, err)
-			if errRoutine != nil {
-				err = errRoutine
-			}
-		}(peerServer)
+			notifyChan <- PutRepMessage{peerServerId, err}
+		}(peerServerId, peerServer)
 	}
-	// wait for {numWrite} reads to finish
-	wg.Wait()
 
-	return &pb.PutResponse{}, err
+	successCount := 0
+	errorMsg := "ERROR MESSAGE: "
+	for i := 0; i < len(preferenceList); i++ {
+		select {
+		case notifyMsg := <-notifyChan:
+			if notifyMsg.err == nil {
+				successCount++
+			} else {
+				errorMsg += "\n" + notifyMsg.err.Error()
+			}
+		case <-time.After(500 * time.Millisecond):
+			break
+		}
+		if successCount >= 3 {
+			// check if all the element are same and return different things
+			return &pb.PutResponse{SuccessStatus: pb.SuccessStatus_FULLY_SUCCESS}, nil
+		}
+	}
+	if successCount == 0 {
+		return nil, errors.New(errorMsg)
+	}
+	return &pb.PutResponse{SuccessStatus: pb.SuccessStatus_PARTIAL_SUCCESS}, nil
 }
 
 // get replica issued from server responsible for the get operation
