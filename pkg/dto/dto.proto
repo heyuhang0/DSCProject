@@ -9,6 +9,11 @@ service KeyValueStore {
   rpc Get (GetRequest) returns (GetResponse) {}
 }
 
+service KeyValueStoreInternal {
+  rpc PutRep (PutRepRequest) returns (PutRepResponse) {}
+  rpc GetRep (GetRepRequest) returns (GetRepResponse) {}
+}
+
 message PutRequest {
   bytes key = 1;
   bytes object = 2;
@@ -22,6 +27,24 @@ message GetRequest {
 }
 
 message GetResponse {
+  bytes object = 1;
+}
+
+
+
+message PutRepRequest {
+  bytes key = 1;
+  bytes object = 2;
+}
+
+message PutRepResponse {
+}
+
+message GetRepRequest {
+  bytes key = 1;
+}
+
+message GetRepResponse {
   bytes object = 1;
 }
 

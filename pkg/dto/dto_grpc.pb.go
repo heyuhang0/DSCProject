@@ -135,3 +135,125 @@ var KeyValueStore_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "pkg/dto/dto.proto",
 }
+
+// KeyValueStoreInternalClient is the client API for KeyValueStoreInternal service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type KeyValueStoreInternalClient interface {
+	PutRep(ctx context.Context, in *PutRepRequest, opts ...grpc.CallOption) (*PutRepResponse, error)
+	GetRep(ctx context.Context, in *GetRepRequest, opts ...grpc.CallOption) (*GetRepResponse, error)
+}
+
+type keyValueStoreInternalClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewKeyValueStoreInternalClient(cc grpc.ClientConnInterface) KeyValueStoreInternalClient {
+	return &keyValueStoreInternalClient{cc}
+}
+
+func (c *keyValueStoreInternalClient) PutRep(ctx context.Context, in *PutRepRequest, opts ...grpc.CallOption) (*PutRepResponse, error) {
+	out := new(PutRepResponse)
+	err := c.cc.Invoke(ctx, "/dto.KeyValueStoreInternal/PutRep", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *keyValueStoreInternalClient) GetRep(ctx context.Context, in *GetRepRequest, opts ...grpc.CallOption) (*GetRepResponse, error) {
+	out := new(GetRepResponse)
+	err := c.cc.Invoke(ctx, "/dto.KeyValueStoreInternal/GetRep", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// KeyValueStoreInternalServer is the server API for KeyValueStoreInternal service.
+// All implementations must embed UnimplementedKeyValueStoreInternalServer
+// for forward compatibility
+type KeyValueStoreInternalServer interface {
+	PutRep(context.Context, *PutRepRequest) (*PutRepResponse, error)
+	GetRep(context.Context, *GetRepRequest) (*GetRepResponse, error)
+	mustEmbedUnimplementedKeyValueStoreInternalServer()
+}
+
+// UnimplementedKeyValueStoreInternalServer must be embedded to have forward compatible implementations.
+type UnimplementedKeyValueStoreInternalServer struct {
+}
+
+func (UnimplementedKeyValueStoreInternalServer) PutRep(context.Context, *PutRepRequest) (*PutRepResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PutRep not implemented")
+}
+func (UnimplementedKeyValueStoreInternalServer) GetRep(context.Context, *GetRepRequest) (*GetRepResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRep not implemented")
+}
+func (UnimplementedKeyValueStoreInternalServer) mustEmbedUnimplementedKeyValueStoreInternalServer() {}
+
+// UnsafeKeyValueStoreInternalServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to KeyValueStoreInternalServer will
+// result in compilation errors.
+type UnsafeKeyValueStoreInternalServer interface {
+	mustEmbedUnimplementedKeyValueStoreInternalServer()
+}
+
+func RegisterKeyValueStoreInternalServer(s grpc.ServiceRegistrar, srv KeyValueStoreInternalServer) {
+	s.RegisterService(&KeyValueStoreInternal_ServiceDesc, srv)
+}
+
+func _KeyValueStoreInternal_PutRep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PutRepRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KeyValueStoreInternalServer).PutRep(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/dto.KeyValueStoreInternal/PutRep",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KeyValueStoreInternalServer).PutRep(ctx, req.(*PutRepRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KeyValueStoreInternal_GetRep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRepRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KeyValueStoreInternalServer).GetRep(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/dto.KeyValueStoreInternal/GetRep",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KeyValueStoreInternalServer).GetRep(ctx, req.(*GetRepRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// KeyValueStoreInternal_ServiceDesc is the grpc.ServiceDesc for KeyValueStoreInternal service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var KeyValueStoreInternal_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "dto.KeyValueStoreInternal",
+	HandlerType: (*KeyValueStoreInternalServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "PutRep",
+			Handler:    _KeyValueStoreInternal_PutRep_Handler,
+		},
+		{
+			MethodName: "GetRep",
+			Handler:    _KeyValueStoreInternal_GetRep_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "pkg/dto/dto.proto",
+}

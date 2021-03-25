@@ -1,0 +1,11 @@
+{
+  "NumServer": 5,
+  "NumReplica":4,
+  "NumRead": 3,
+  "NumWrite": 3,
+  "Ids": [5001,5002,5003,5004,5005],
+  "ServerPortInternal": [5001, 5002, 5003, 5004, 5005],
+  "ServerPortExternal": [6001, 6002, 6003, 6004, 6005],
+  "ServerIPInternal": ["localhost", "localhost", "localhost", "localhost", "localhost"],
+  "ServerIPExternal": ["localhost", "localhost", "localhost", "localhost", "localhost"]
+}
