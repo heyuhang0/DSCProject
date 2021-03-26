@@ -16,49 +16,50 @@ import (
 	"time"
 )
 
+type ServerConfig struct {
+	Id           int
+	IpInternal   string
+	IpExternal   string
+	PortInternal int
+	PortExternal int
+}
+
 type Configuration struct {
-	NumServer          int
-	NumReplica         int
-	NumRead            int
-	NumWrite           int
-	Timeout            int
-	Ids                []int
-	ServerPortInternal []int
-	ServerPortExternal []int
-	ServerIPInternal   []string
-	ServerIPExternal   []string
+	NumServer  int
+	NumReplica int
+	NumRead    int
+	NumWrite   int
+	Timeout    int
+	Servers    []ServerConfig
+	Ids        []int
 }
 
 func main() {
 	// can take: 1, 2, ..., numServer
 	serverIndexStr := os.Args[1]
-	serverIndex, err := strconv.Atoi(serverIndexStr)
+	serverIndex, errConvert := strconv.Atoi(serverIndexStr)
 	serverIndex--
-	if err != nil {
-		fmt.Println(err)
+	if errConvert != nil {
+		fmt.Println(errConvert)
 	}
 	// read configs
 	configFile := "configs/default_config.json"
-	jsonFile, err := os.Open(configFile)
-	if err != nil {
-		fmt.Println(err)
+	jsonFile, errReadFile := os.Open(configFile)
+	if errReadFile != nil {
+		fmt.Println(errReadFile)
 	}
 	defer jsonFile.Close()
 	byteValue, _ := ioutil.ReadAll(jsonFile)
 	var config Configuration
 	json.Unmarshal(byteValue, &config)
 	fmt.Println(config)
-	//os.Exit(0)
 
 	numServer := config.NumServer
 	numRead := config.NumRead
 	numWrite := config.NumWrite
 	numReplica := config.NumReplica
+	servers := config.Servers
 	Ids := config.Ids
-	internalPorts := config.ServerPortInternal
-	externalPorts := config.ServerPortExternal
-	internalIP := config.ServerIPInternal
-	externalIP := config.ServerIPExternal
 	timeout := time.Millisecond * time.Duration(config.Timeout)
 	log.Println(timeout)
 
@@ -66,30 +67,31 @@ func main() {
 		os.Exit(1)
 	}
 
-	nodeId := Ids[serverIndex]
+	localServer := servers[serverIndex]
+	nodeId := localServer.Id
 
 	// creating server
-	log.Println("starting to create server", nodeId)
+	log.Printf("=== Server %v Starting to create server ===\n", nodeId)
 
-	//create db
-	db, err := leveldb.OpenFile(".appdata/"+strconv.Itoa(nodeId)+"/leveldb", nil)
-	if err != nil {
-		log.Fatalf("failed to initialize leveldb: %v", err)
+	// create db
+	db, errCreateDB := leveldb.OpenFile(".appdata/"+strconv.Itoa(nodeId)+"/leveldb", nil)
+	if errCreateDB != nil {
+		log.Fatalf("failed to initialize leveldb: %v", errCreateDB.Error())
 	}
-	log.Println("db created", nodeId)
+	log.Printf("Server %v Local DB created\n", nodeId)
 
 	// listen to external and internal ports
-	internalAddress := internalIP[serverIndex] + ":" + strconv.Itoa(internalPorts[serverIndex])
-	lisInternal, err := net.Listen("tcp", internalAddress)
-	log.Println("registered internal address " + internalAddress)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+	internalAddress := localServer.IpInternal + ":" + strconv.Itoa(localServer.PortInternal)
+	lisInternal, errListenInternal := net.Listen("tcp", internalAddress)
+	log.Printf("Listening internal address: %v\n", internalAddress)
+	if errListenInternal != nil {
+		log.Fatalf("Failed to listen to internal address %v: %v", internalAddress, errListenInternal.Error())
 	}
-	externalAddress := externalIP[serverIndex] + ":" + strconv.Itoa(externalPorts[serverIndex])
-	lisExternal, err := net.Listen("tcp", externalAddress)
-	log.Println("registered external address " + externalAddress)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+	externalAddress := localServer.IpExternal + ":" + strconv.Itoa(localServer.PortExternal)
+	lisExternal, errListenExternal := net.Listen("tcp", externalAddress)
+	log.Printf("Listening external address %v", externalAddress)
+	if errListenExternal != nil {
+		log.Fatalf("Failed to listen to external address %v: %v", externalAddress, errListenExternal.Error())
 	}
 
 	sExternal := grpc.NewServer()
@@ -100,46 +102,42 @@ func main() {
 	pb.RegisterKeyValueStoreInternalServer(sInternal, newServer)
 	go func() {
 		if err := sExternal.Serve(lisExternal); err != nil {
-			log.Fatalf("failed to serve: %v", err)
+			log.Fatalf("Failed to serve external address %v: %v", externalAddress, err.Error())
 		}
 	}()
 	go func() {
 		if err := sInternal.Serve(lisInternal); err != nil {
-			log.Fatalf("failed to serve: %v", err)
+			log.Fatalf("Failed to serve internal address %v: %v", internalAddress, err.Error())
 		}
 	}()
 
 	// create connection to other service
-	//clientForServer := make(map[int]pb.KeyValueStoreInternalClient)
 	var clientForServer sync.Map
-	//clientForServer := make([]pb.KeyValueStoreInternalClient, numServer - 1, numServer - 1)
 	var wg sync.WaitGroup
-	for j := 0; j < numServer; j++ {
+	for j := 0; j < len(servers); j++ {
 		// index is the index in the list, id is the actual id
-		if nodeId == Ids[j] {
+		serverClient := servers[j]
+		if nodeId == serverClient.Id {
 			continue
 		}
-		log.Println("creating connection to others ", nodeId, Ids[j])
+		log.Printf("Server %v Creating connection to server %v", nodeId, serverClient.Id)
 		wg.Add(1)
-		go func(otherIdIndex int) {
+		go func(serverClient ServerConfig) {
 			defer wg.Done()
-			peerServerId := Ids[otherIdIndex]
-			address := internalIP[otherIdIndex] + ":" + strconv.Itoa(internalPorts[otherIdIndex])
+			peerServerId := serverClient.Id
+			address := serverClient.IpInternal + ":" + strconv.Itoa(serverClient.PortInternal)
 			conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
-			log.Println("dial from", nodeId, peerServerId)
+			log.Printf("Server %v dial to server %v", nodeId, peerServerId)
 			if err != nil {
-				log.Fatalf("did not connect: %v", err)
+				log.Fatalf("Server %v failed to dial to server %v, error: %v\n", nodeId, peerServerId, err.Error())
 			}
-			//defer func() { _ = conn.Close() }()
 			c := pb.NewKeyValueStoreInternalClient(conn)
-			log.Println("connection between two server created ", peerServerId)
+			log.Printf("Connection between server %v and server %v created \n", nodeId, peerServerId)
 			clientForServer.Store(peerServerId, c)
-		}(j)
+		}(serverClient)
 	}
 	wg.Wait()
-	//log.Println(&clientForServer)
 	newServer.SetOtherServerInstance(&clientForServer)
-	log.Println("finished setting server ", nodeId)
-
+	log.Printf("=== Finished setting server %v ===\n", nodeId)
 	time.Sleep(10000000000 * time.Millisecond)
 }
