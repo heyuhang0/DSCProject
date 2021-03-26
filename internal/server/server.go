@@ -8,6 +8,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"log"
 	"strconv"
+	"sync"
 	"time"
 	dberrors "github.com/syndtr/goleveldb/leveldb/errors"
 )
@@ -33,7 +34,7 @@ type server struct {
 	id          int
 	allServerID []int
 	//otherServerInstance []pb.KeyValueStoreInternalClient
-	otherServerInstance map[int]pb.KeyValueStoreInternalClient
+	otherServerInstance *sync.Map
 	Consistent          Consistent
 	numDescendants      int
 	numRead             int
@@ -43,7 +44,7 @@ type server struct {
 	db                  *leveldb.DB
 }
 
-func (s *server) SetOtherServerInstance(otherServerInstance map[int]pb.KeyValueStoreInternalClient) {
+func (s *server) SetOtherServerInstance(otherServerInstance *sync.Map) {
 	s.otherServerInstance = otherServerInstance
 }
 
@@ -93,25 +94,6 @@ func allSame(data [][]byte) bool {
 	return true
 }
 
-// not used any more
-func (s *server) GetDescendants() ([]pb.KeyValueStoreInternalClient, error) {
-	numPeerReplica := s.numReplica
-	if numPeerReplica > len(s.allServerID) {
-		return nil, errors.New("descendents number bigger than total machine number")
-	}
-	var descendants []pb.KeyValueStoreInternalClient
-	idIndex := indexOf(s.id, s.allServerID)
-	for i := 1; i <= numPeerReplica; i++ {
-		index := (idIndex + i) % len(s.allServerID)
-		if index < idIndex {
-			descendants = append(descendants, s.otherServerInstance[index])
-		} else if index > idIndex {
-			descendants = append(descendants, s.otherServerInstance[index-1])
-		}
-	}
-	return descendants, nil
-}
-
 func (s *server) GetMockPreferenceList(key []byte) ([]int, error) {
 	numPeerReplica := s.numReplica
 	if numPeerReplica > len(s.allServerID) {
@@ -128,7 +110,7 @@ func (s *server) GetMockPreferenceList(key []byte) ([]int, error) {
 
 // get key, issued from client
 func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
-	log.Printf("Received GET request from clients for key %v\n", string(req.Key))
+	log.Printf("Received GET request from clients for {key {%v}}\n", string(req.Key))
 	preferenceList, errGetPref := s.GetMockPreferenceList(req.Key)
 	if errGetPref != nil {
 		return nil, errGetPref
@@ -145,15 +127,19 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 		// if it is server it self
 		if peerServerId == s.id {
 			go func(notifyChan chan GetRepMessage) {
-				log.Printf("Getting key {%v} from myself\n", string(req.Key))
+				log.Printf("Getting {key {%v}} from local db\n", string(req.Key))
 				data, err := s.db.Get(req.Key, nil)
 				notifyChan <- GetRepMessage{s.id, err, data}
 			}(notifyChan)
 			continue
 		}
-		peerServer, exist := s.otherServerInstance[peerServerId]
+		peerServerInterface, exist := s.otherServerInstance.Load(peerServerId)
 		if !exist {
 			panic("peer id is not stored in server " + strconv.Itoa(s.id))
+		}
+		peerServer, ok := peerServerInterface.(pb.KeyValueStoreInternalClient)
+		if !ok {
+			panic("peer server is not the correct type " + strconv.Itoa(s.id))
 		}
 		go func(peerServerId int, peerServer pb.KeyValueStoreInternalClient, notifyChan chan GetRepMessage) {
 			reqRep := pb.GetRepRequest{Key: req.Key}
@@ -183,7 +169,7 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 				successCount++
 			} else {
 				errorMsg = errorMsg + notifyMsg.err.Error() + ";"
-				log.Printf("server %v: %v", notifyMsg.id, notifyMsg.err.Error())
+				log.Printf("server %v occured error: %v", notifyMsg.id, notifyMsg.err.Error())
 			}
 		case <-time.After(s.timeout):
 			break
@@ -238,23 +224,25 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 		if peerServerId == s.id {
 			go func() {
 				err := s.db.Put(req.Key, req.Object, nil)
-				log.Printf("Putting key {%v}, val {%v} to local", req.Key, req.Object)
+				log.Printf("Putting {key: {%v}, val: {%v}} to local db", string(req.Key), string(req.Object))
 				notifyChan <- PutRepMessage{s.id, err}
 			}()
 			continue
 		}
-		peerServer, exist := s.otherServerInstance[peerServerId]
+		peerServerInterface, exist := s.otherServerInstance.Load(peerServerId)
 		if !exist {
 			panic("peer id is not stored in server " + strconv.Itoa(s.id))
+		}
+		peerServer, ok := peerServerInterface.(pb.KeyValueStoreInternalClient)
+		if !ok {
+			panic("peer server is not the correct type " + strconv.Itoa(s.id))
 		}
 		go func(peerServerId int, peerServer pb.KeyValueStoreInternalClient) {
 			reqRep := pb.PutRepRequest{Key: req.Key, Object: req.Object}
 			clientDeadline := time.Now().Add(s.timeout)
-			log.Println(time.Now(), s.timeout, clientDeadline)
 			ctxRep, cancel := context.WithDeadline(ctx, clientDeadline)
 			defer cancel()
 			_, err := peerServer.PutRep(ctxRep, &reqRep)
-			log.Printf("finish put remote %v error %v", peerServer, err)
 			notifyChan <- PutRepMessage{peerServerId, err}
 		}(peerServerId, peerServer)
 	}
@@ -268,7 +256,7 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 				successCount++
 			} else {
 				errorMsg =  errorMsg + notifyMsg.err.Error() + ";"
-				log.Printf("server %v: %v\n", notifyMsg.id, notifyMsg.err.Error())
+				log.Printf("server %v error occured: %v\n", notifyMsg.id, notifyMsg.err.Error())
 			}
 		case <-time.After(s.timeout):
 			break
@@ -286,7 +274,7 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 
 // get replica issued from server responsible for the get operation
 func (s *server) GetRep(ctx context.Context, req *pb.GetRepRequest) (*pb.GetRepResponse, error) {
-	log.Printf("Getting replica for key: %v\n", string(req.Key))
+	log.Printf("Getting replica for {key: {%v}} from local db\n", string(req.Key))
 	data, err := s.db.Get(req.Key, nil)
 	if err != nil {
 		return nil, err
@@ -296,7 +284,7 @@ func (s *server) GetRep(ctx context.Context, req *pb.GetRepRequest) (*pb.GetRepR
 
 // put replica issued from server responsible for the put operation
 func (s *server) PutRep(ctx context.Context, req *pb.PutRepRequest) (*pb.PutRepResponse, error) {
-	log.Printf("Putting replica, key {%v}, val {%v}", string(req.Key), string(req.Object))
+	log.Printf("Putting replica {key: {%v}, val: {%v}} to local db", string(req.Key), string(req.Object))
 	err := s.db.Put(req.Key, req.Object, nil)
 	return &pb.PutRepResponse{}, err
 }

@@ -110,7 +110,8 @@ func main() {
 	}()
 
 	// create connection to other service
-	clientForServer := make(map[int]pb.KeyValueStoreInternalClient)
+	//clientForServer := make(map[int]pb.KeyValueStoreInternalClient)
+	var clientForServer sync.Map
 	//clientForServer := make([]pb.KeyValueStoreInternalClient, numServer - 1, numServer - 1)
 	var wg sync.WaitGroup
 	for j := 0; j < numServer; j++ {
@@ -132,12 +133,12 @@ func main() {
 			//defer func() { _ = conn.Close() }()
 			c := pb.NewKeyValueStoreInternalClient(conn)
 			log.Println("connection between two server created ", peerServerId)
-			clientForServer[peerServerId] = c
+			clientForServer.Store(peerServerId, c)
 		}(j)
 	}
 	wg.Wait()
-	log.Println(clientForServer)
-	newServer.SetOtherServerInstance(clientForServer)
+	//log.Println(&clientForServer)
+	newServer.SetOtherServerInstance(&clientForServer)
 	log.Println("finished setting server ", nodeId)
 
 	time.Sleep(10000000000 * time.Millisecond)
