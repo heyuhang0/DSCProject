@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
+	"github.com/heyuhang0/DSCProject/pkg/vc"
 	"github.com/syndtr/goleveldb/leveldb"
 	"log"
 	"strconv"
@@ -28,6 +29,7 @@ type server struct {
 	numWrite            int
 	numReplica          int
 	db                  *leveldb.DB
+	vectorClock         *vc.VectorClock
 }
 
 func (s *server) SetOtherServerInstance(otherServerInstance map[int]pb.KeyValueStoreInternalClient) {
@@ -40,7 +42,7 @@ func (s *server) SetConsistent(consistent Consistent) {
 
 // create a new server
 func NewServer(id int, allServerID []int, numReplica, numRead, numWrite int, db *leveldb.DB) *server {
-	return &server{id: id, allServerID: allServerID, numReplica: numReplica, numRead: numRead, numWrite: numWrite, db: db}
+	return &server{id: id, allServerID: allServerID, numReplica: numReplica, numRead: numRead, numWrite: numWrite, db: db, vectorClock: vc.NewVectorClock(id)}
 }
 
 // contains
@@ -143,8 +145,14 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 		}
 		go func(peerServer pb.KeyValueStoreInternalClient) {
 			defer wg.Done()
-			reqRep := pb.GetRepRequest{Key: req.Key}
+			s.vectorClock.Advance()
+			reqRep := pb.GetRepRequest{Key: req.Key, Vectorclock: vc.ToDTO(s.vectorClock)}
 			dataRep, errRoutine := peerServer.GetRep(ctx, &reqRep)
+			// need to merge vector clock
+			if dataRep != nil {
+				// if no data in the node, then skip
+				s.vectorClock.MergeClock(vc.FromDTO(dataRep.Vectorclock).Vclock)
+			}
 			// skip nil value for now
 			if errRoutine != nil {
 				return
@@ -201,8 +209,11 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 		}
 		go func(peerServer pb.KeyValueStoreInternalClient) {
 			defer wg.Done()
-			reqRep := pb.PutRepRequest{Key: req.Key, Object: req.Object}
-			_, errRoutine := peerServer.PutRep(context.Background(), &reqRep)
+			s.vectorClock.Advance()
+			reqRep := pb.PutRepRequest{Key: req.Key, Object: req.Object, Vectorclock: vc.ToDTO(s.vectorClock)}
+			repRes, errRoutine := peerServer.PutRep(context.Background(), &reqRep)
+			// need to merge
+			s.vectorClock.MergeClock(vc.FromDTO(repRes.Vectorclock).Vclock)
 			log.Printf("finish put remote %v error %v", peerServer, err)
 			if errRoutine != nil {
 				err = errRoutine
@@ -218,16 +229,20 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 // get replica issued from server responsible for the get operation
 func (s *server) GetRep(ctx context.Context, req *pb.GetRepRequest) (*pb.GetRepResponse, error) {
 	log.Println("getting replica")
+	s.vectorClock.MergeClock(vc.FromDTO(req.Vectorclock).Vclock)
 	data, err := s.db.Get(req.Key, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &pb.GetRepResponse{Object: data}, nil
+	s.vectorClock.Advance()
+	return &pb.GetRepResponse{Object: data, Vectorclock: vc.ToDTO(s.vectorClock)}, nil
 }
 
 // put replica issued from server responsible for the put operation
 func (s *server) PutRep(ctx context.Context, req *pb.PutRepRequest) (*pb.PutRepResponse, error) {
 	log.Println("putting replica")
+	s.vectorClock.MergeClock(vc.FromDTO(req.Vectorclock).Vclock)
 	err := s.db.Put(req.Key, req.Object, nil)
-	return &pb.PutRepResponse{}, err
+	s.vectorClock.Advance()
+	return &pb.PutRepResponse{Vectorclock: vc.ToDTO(s.vectorClock)}, err
 }
