@@ -56,7 +56,11 @@ var getCmd = &cobra.Command{
 		if err != nil {
 			log.Fatalf("Failed to GET: %v", err)
 		}
-		log.Printf("GET SUCCESSFUL: %v %v", key,string(resp.Object))
+		if resp.FoundKey == pb.FoundKey_KEY_NOT_FOUND{
+			log.Printf("GET SUCCESSFUL: key not found")
+		}else{
+			log.Printf("GET SUCCESSFUL: %v %v", key,string(resp.Object))
+		}
 	},
 }
 
