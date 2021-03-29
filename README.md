@@ -17,24 +17,55 @@
 ### Features
 1. GET
 2. PUT
-3. Request Per Second
-4. Latency Percentile
+3. GET-NODE
+4. PUT-NODE
+5. Request Per Second
+6. Latency Percentile
 
 ### Getting Started
 
 **Build & Start up all the servers**
-```go
+```shell
 go build -o server-main cmd/server/main.go
-./server-main n (where n is the server number)
+./server-main n  # where n is the server number
 ```
 **Build & Start up client**
-```go
-go build -o simshell simshell.go
-./simshell
+```shell
+go build -o client cmd/client/main.go
+./client
 ```
 
 #### GET
 **Description: For Client to send a GET request to Server**
+```
+Input Argument:
+1. Key (type string)
+
+Expected Response: 
+key: value
+```
+```
+command: get <key>
+example: get hello
+```
+
+#### PUT
+**Description: For Client to send a PUT request to Server**
+```
+Input Argument:
+1. Key (type string)
+2. Value (type string)
+
+Expected Response: 
+OK
+```
+```bash
+command: put <key> <value>
+example: put hello prof
+```
+
+#### GET-NODE
+**Description: For Client to send a GET request to a specific Server**
 ```
 Input Argument:
 1. Address of Server (type string) i.e localhost:6001
@@ -44,12 +75,12 @@ Expected Response:
 GET SUCCESSFUL, {key, value}
 ```
 ```bash
-command: get <address> <key>
-example: get localhost:6001 hello
+command: get-node <address> <key>
+example: get-node localhost:6001 hello
 ```
 
-#### PUT
-**Description: For Client to send a PUT request to Server**
+#### PUT-NODE
+**Description: For Client to send a PUT request to a specific Server**
 ```
 Input Argument:
 1. Address of Server (type string) i.e localhost:50051,
@@ -60,8 +91,8 @@ Expected Response:
 PUT SUCCESSFUL, {key, value}
 ```
 ```bash
-command: put <address> <key> <value>
-example: get localhost:6001 hello prof
+command: put-node <address> <key> <value>
+example: put-node localhost:6001 hello prof
 ```
 
 #### Request Per Second
