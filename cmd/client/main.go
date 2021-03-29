@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
+	"github.com/heyuhang0/DSCProject/pkg/kvclient"
 	"github.com/montanaflynn/stats"
 	"google.golang.org/grpc"
 	"log"
@@ -18,6 +20,16 @@ import (
 )
 
 func main() {
+	// initialize client
+	configPath := flag.String("config", "./configs/default_client.json", "config path")
+	flag.Parse()
+
+	config, err := kvclient.NewClientConfigFromFile(*configPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client := kvclient.NewKeyValueStoreClient(config)
 
 	// Read command from terminal
 	reader := bufio.NewReader(os.Stdin)
@@ -25,27 +37,55 @@ func main() {
 		fmt.Print("$ ")
 		cmdString, err := reader.ReadString('\n')
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			_, _ = fmt.Fprintln(os.Stderr, err)
 		}
 
-		err = runCommand(cmdString)
+		err = runCommand(client, cmdString)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			_, _ = fmt.Fprintln(os.Stderr, err)
 		}
 	}
 }
 
-func runCommand(commandStr string) error {
+func runCommand(client *kvclient.KeyValueStoreClient, commandStr string) error {
 	commandStr = strings.TrimSuffix(commandStr, "\n")
 	arrCommandStr := strings.Fields(commandStr) // split command into an array of string - Fields will separate by whitespaces
+
+	if len(arrCommandStr) == 0 {
+		return nil
+	}
 
 	switch arrCommandStr[0] {
 	case "exit":
 		os.Exit(0)
 
 	case "get":
+		if len(arrCommandStr) != 2 {
+			return errors.New("get requires 1 arguments: <key>")
+		}
+		key := arrCommandStr[1]
+
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		resp, err := client.Get(ctx, &pb.GetRequest{Key: []byte(key)})
+		if err != nil {
+			return err
+		}
+		value := "(nil)"
+		if resp.FoundKey == pb.FoundKey_KEY_FOUND {
+			value = string(resp.Object)
+		}
+		displayKey := key
+		if resp.SuccessStatus == pb.SuccessStatus_PARTIAL_SUCCESS {
+			displayKey += "(partial)"
+		}
+		fmt.Printf("%v: %v\n", displayKey, value)
+		return nil
+
+	case "get-node":
 		if len(arrCommandStr) != 3 {
-			return errors.New("GET requires 2 arguments: <address> <key>")
+			return errors.New("get-node requires 2 arguments: <address> <key>")
 		}
 
 		address, key := arrCommandStr[1], arrCommandStr[2]
@@ -69,6 +109,32 @@ func runCommand(commandStr string) error {
 		return nil
 
 	case "put":
+		if len(arrCommandStr) != 3 {
+			return errors.New("put requires 1 arguments: <key> <value>")
+		}
+		key, value := arrCommandStr[1], arrCommandStr[2]
+
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		resp, err := client.Put(ctx, &pb.PutRequest{
+			Key:    []byte(key),
+			Object: []byte(value),
+		})
+		if err != nil {
+			return err
+		}
+		if resp.SuccessStatus == pb.SuccessStatus_FULLY_SUCCESS {
+			fmt.Println("OK")
+		} else {
+			fmt.Println("OK(partial)")
+		}
+		return nil
+
+	case "put-node":
+		if len(arrCommandStr) != 4 {
+			return errors.New("put-node requires 3 arguments: <address> <key> <value>")
+		}
 		address, key, value := arrCommandStr[1], arrCommandStr[2], arrCommandStr[3]
 
 		conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
@@ -123,7 +189,7 @@ func runCommand(commandStr string) error {
 		}
 		t := time.Now()
 		elapsed = t.Sub(start).Seconds()
-		requestPerSec := float64(noRequests)/(elapsed)
+		requestPerSec := float64(noRequests) / (elapsed)
 		fmt.Fprintln(os.Stdout, "Number of Requests Per Second:", requestPerSec)
 		return nil
 
