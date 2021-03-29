@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
+	"flag"
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
-	"google.golang.org/grpc"
+	"github.com/heyuhang0/DSCProject/pkg/kvclient"
 	"log"
 )
 
@@ -13,12 +14,13 @@ const (
 
 func main() {
 	// Set up a connection to the server.
-	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+	configPath := flag.String("config", "./configs/default_client.json", "config path")
+	config, err := kvclient.NewClientConfigFromFile(*configPath)
 	if err != nil {
-		log.Fatalf("did not connect: %v", err)
+		log.Fatal(err)
 	}
-	defer func() { _ = conn.Close() }()
-	c := pb.NewKeyValueStoreClient(conn)
+
+	c := kvclient.NewKeyValueStoreClient(config)
 
 	// Basic Test
 	ctx := context.Background()

@@ -1,0 +1,27 @@
+{
+  "NumVirtualNodes": 10,
+  "NodeTimeoutMs": 500,
+  "Retry": 3,
+  "SeedNodes": [
+    {
+      "ID": 5001,
+      "Address": "localhost:6001"
+    },
+    {
+      "ID": 5002,
+      "Address": "localhost:6002"
+    },
+    {
+      "ID": 5003,
+      "Address": "localhost:6003"
+    },
+    {
+      "ID": 5004,
+      "Address": "localhost:6004"
+    },
+    {
+      "ID": 5005,
+      "Address": "localhost:6005"
+    }
+  ]
+}
