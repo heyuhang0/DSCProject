@@ -43,11 +43,19 @@ message GetResponse {
   FoundKey foundKey = 3;
 }
 
+message VectorClock {
+  map<int64, int64> vclock = 1;
+  int64 machineID = 2;
+}
 
+message VersionedData {
+  bytes object = 1;
+  VectorClock version = 2;
+}
 
 message PutRepRequest {
   bytes key = 1;
-  bytes object = 2;
+  VersionedData data = 2;
   VectorClock vectorclock = 3;
 }
 
@@ -61,15 +69,9 @@ message GetRepRequest {
 }
 
 message GetRepResponse {
-  bytes object = 1;
+  VersionedData data = 1;
   VectorClock vectorclock = 2;
 }
-
-message VectorClock {
-  map<int64,int64> vclock = 1;
-  int64 machineID = 2;
-}
-
 
 message Consistent {
   int64 numVNodes = 1;

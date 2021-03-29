@@ -11,6 +11,7 @@ import (
 	dberrors "github.com/syndtr/goleveldb/leveldb/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"log"
 	"strconv"
 	"sync"
@@ -20,7 +21,7 @@ import (
 type GetRepMessage struct {
 	id   int
 	err  error
-	data []byte
+	data *pb.VersionedData
 }
 
 type PutRepMessage struct {
@@ -89,13 +90,44 @@ func indexOf(id int, data []int) int {
 }
 
 // check whether all byte array in an array are the same
-func allSame(data [][]byte) bool {
+func allSame(data []*pb.VersionedData) bool {
 	for i, _ := range data {
-		if bytes.Compare(data[0], data[i]) != 0 {
+		if bytes.Compare(data[0].Object, data[i].Object) != 0 {
 			return false
 		}
 	}
 	return true
+}
+
+func getLatest(dataSlice []*pb.VersionedData) *pb.VersionedData {
+	if len(dataSlice) == 0 {
+		return nil
+	}
+
+	latest := dataSlice[0]
+	for _, data := range dataSlice {
+		// incoming version is newer iff
+		// 1. every element in the old version exists in the incoming version, and
+		// 2. the value of the incoming version >= old version
+		// 3. at least one value > old version
+		latestVersion := latest.Version.Vclock
+		currVersion := data.Version.Vclock
+		newer := false
+
+		for i, val := range latestVersion {
+			comingVal, ok := currVersion[i]
+			if !ok || comingVal < val {
+				newer = false
+				break
+			} else if comingVal > val {
+				newer = true
+			}
+		}
+		if newer {
+			latest = data
+		}
+	}
+	return latest
 }
 
 func (s *server) GetPreferenceList(key []byte) ([]int, error) {
@@ -167,19 +199,19 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 			if err != nil {
 				notifyChan <- GetRepMessage{peerServerId, err, nil}
 			} else {
-				notifyChan <- GetRepMessage{peerServerId, nil, dataRep.Object}
+				notifyChan <- GetRepMessage{peerServerId, nil, dataRep.Data}
 			}
 		}(peerServerId, notifyChan)
 	}
 
-	var vals [][]byte
+	var vals []*pb.VersionedData
 	successCount := 0
 	errorMsg := "ERROR MESSAGE: "
 	for i := 0; i < len(preferenceList); i++ {
 		select {
 		case notifyMsg := <-notifyChan:
 			if notifyMsg.err == nil {
-				log.Printf("Received GET repica response from server %v for key {%v}: val {%v}", notifyMsg.id, keyString, string(notifyMsg.data))
+				log.Printf("Received GET repica response from server %v for key {%v}: val {%v}", notifyMsg.id, keyString, string(notifyMsg.data.Object))
 				successCount++
 				vals = append(vals, notifyMsg.data)
 			} else if e, ok := status.FromError(notifyMsg.err); ok && e.Code() == codes.NotFound { // key not found
@@ -214,10 +246,12 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 	}
 	// check if all the element are same and return different things
 	if allSame(vals) {
-		return &pb.GetResponse{Object: vals[0], SuccessStatus: successStatus, FoundKey: pb.FoundKey_KEY_FOUND}, nil
+		return &pb.GetResponse{Object: vals[0].Object, SuccessStatus: successStatus, FoundKey: pb.FoundKey_KEY_FOUND}, nil
 	} else {
-		// TODO: return the arbitrary latest value
-		return &pb.GetResponse{Object: vals[0], SuccessStatus: successStatus, FoundKey: pb.FoundKey_KEY_FOUND}, nil
+		log.Printf("Received inconsistent values for key {%v}: %v", keyString, vals)
+		latest := getLatest(vals)
+		log.Printf("Selected the lastest value {%v} for key {%v}", latest, keyString)
+		return &pb.GetResponse{Object: latest.Object, SuccessStatus: successStatus, FoundKey: pb.FoundKey_KEY_FOUND}, nil
 	}
 }
 
@@ -242,12 +276,16 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 	notifyChan := make(chan PutRepMessage, s.numReplica)
 
 	// send PutRep request to all servers in preference list
+	timestamp := vc.ToDTO(s.vectorClock)
+	reqRep := &pb.PutRepRequest{
+		Key: req.Key,
+		Data: &pb.VersionedData{
+			Object:  req.Object,
+			Version: timestamp,
+		},
+		Vectorclock: timestamp,
+	}
 	for _, peerServerId := range preferenceList {
-		reqRep := pb.PutRepRequest{
-			Key: req.Key,
-			Object: req.Object,
-			Vectorclock: vc.ToDTO(s.vectorClock),
-		}
 		var err error
 		// send putRep request to servers with id peerServerId
 		go func(peerServerId int, notifyChan chan PutRepMessage) {
@@ -257,7 +295,7 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 			defer cancel()
 			// myself
 			if peerServerId == s.id {
-				_, err = s.PutRep(ctxRep, &reqRep)
+				_, err = s.PutRep(ctxRep, reqRep)
 			} else { // other server
 				peerServerInterface, exist := s.otherServerInstance.Load(peerServerId)
 				if !exist {
@@ -268,7 +306,7 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 					panic("peer server is not the correct type " + strconv.Itoa(s.id))
 				}
 				var resp *pb.PutRepResponse
-				resp, err = peerServer.PutRep(ctxRep, &reqRep)
+				resp, err = peerServer.PutRep(ctxRep, reqRep)
 
 				// need to merge vector clock
 				if err == nil && resp != nil {
@@ -317,23 +355,34 @@ func (s *server) GetRep(ctx context.Context, req *pb.GetRepRequest) (*pb.GetRepR
 	log.Printf("Getting replica for key: {%v} from local db\n", string(req.Key))
 	s.vectorClock.MergeClock(vc.FromDTO(req.Vectorclock).Vclock)
 
-	data, err := s.db.Get(req.Key, nil)
+	dataBytes, err := s.db.Get(req.Key, nil)
 	if err != nil {
 		if err == leveldb.ErrNotFound || err == dberrors.ErrNotFound { // key not found
 			return nil, status.Error(codes.NotFound, "LEVELDB KEY NOT FOUND")
 		}
 		return nil, err
 	}
+
+	data := &pb.VersionedData{}
+	if err = proto.Unmarshal(dataBytes, data); err != nil {
+		return nil, err
+	}
+
 	s.vectorClock.Advance()
-	return &pb.GetRepResponse{Object: data, Vectorclock: vc.ToDTO(s.vectorClock)}, nil
+	return &pb.GetRepResponse{Data: data, Vectorclock: vc.ToDTO(s.vectorClock)}, nil
 }
 
 // put replica issued from server responsible for the put operation
 func (s *server) PutRep(ctx context.Context, req *pb.PutRepRequest) (*pb.PutRepResponse, error) {
-	log.Printf("Putting replica key: {%v}, val: {%v} to local db", string(req.Key), string(req.Object))
+	log.Printf("Putting replica key: {%v}, val: {%v} to local db", string(req.Key), string(req.Data.Object))
 	s.vectorClock.MergeClock(vc.FromDTO(req.Vectorclock).Vclock)
 
-	err := s.db.Put(req.Key, req.Object, nil)
+	dataBytes, err := proto.Marshal(req.Data)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.db.Put(req.Key,dataBytes, nil)
 	s.vectorClock.Advance()
 	return &pb.PutRepResponse{Vectorclock: vc.ToDTO(s.vectorClock)}, err
 }
