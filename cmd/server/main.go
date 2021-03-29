@@ -25,13 +25,14 @@ type ServerConfig struct {
 }
 
 type Configuration struct {
-	NumServer  int
-	NumReplica int
-	NumRead    int
-	NumWrite   int
-	Timeout    int
-	Servers    []ServerConfig
-	Ids        []int
+	NumServer       int
+	NumReplica      int
+	NumRead         int
+	NumWrite        int
+	NumVirtualNodes int
+	Timeout         int
+	Servers         []ServerConfig
+	Ids             []int
 }
 
 func main() {
@@ -59,6 +60,8 @@ func main() {
 	numWrite := config.NumWrite
 	numReplica := config.NumReplica
 	servers := config.Servers
+	numVNodes := config.NumVirtualNodes
+
 	Ids := config.Ids
 	timeout := time.Millisecond * time.Duration(config.Timeout)
 	log.Println(timeout)
@@ -97,7 +100,8 @@ func main() {
 	sExternal := grpc.NewServer()
 	sInternal := grpc.NewServer()
 	// register to grpc
-	newServer := server.NewServer(nodeId, Ids, numReplica, numRead, numWrite, timeout, db)
+	newServer := server.NewServer(nodeId, Ids, numReplica, numRead, numWrite, numVNodes, timeout, db)
+
 	pb.RegisterKeyValueStoreServer(sExternal, newServer)
 	pb.RegisterKeyValueStoreInternalServer(sInternal, newServer)
 	go func() {
@@ -139,5 +143,7 @@ func main() {
 	wg.Wait()
 	newServer.SetOtherServerInstance(&clientForServer)
 	log.Printf("=== Finished setting server %v ===\n", nodeId)
-	time.Sleep(10000000000 * time.Millisecond)
+
+	// sleep forever
+	select {}
 }
