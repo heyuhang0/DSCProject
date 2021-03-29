@@ -1,6 +1,7 @@
 package vc
 
 import (
+	"fmt"
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
 	"sync"
 )
@@ -17,6 +18,13 @@ func NewVectorClock(machineID int) *VectorClock {
 		machineID: machineID,
 		mu:        sync.RWMutex{},
 	}
+}
+
+func (selfVectorClock *VectorClock) String() string {
+	if selfVectorClock == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("&{%v %v}", selfVectorClock.machineID, selfVectorClock.Vclock)
 }
 
 func (selfVectorClock *VectorClock) MergeClock(otherClock map[int]int) bool {

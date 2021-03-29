@@ -64,6 +64,7 @@ func NewServer(id int, allServerID []int, numReplica, numRead, numWrite, numVNod
 		consistent:  hashRing,
 		timeout:     timeout,
 		db:          db,
+		vectorClock: vc.NewVectorClock(id),
 	}
 }
 
@@ -129,7 +130,10 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 	notifyChan := make(chan GetRepMessage, s.numReplica)
 	// send getRep request to all servers in preference list
 	for _, peerServerId := range preferenceList {
-		reqRep := pb.GetRepRequest{Key: req.Key}
+		reqRep := pb.GetRepRequest{
+			Key: req.Key,
+			Vectorclock: vc.ToDTO(s.vectorClock),
+		}
 		// send getRep request to servers with id peerServerId
 		go func(peerServerId int, notifyChan chan GetRepMessage) {
 			// gRPC context
@@ -239,7 +243,11 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 
 	// send PutRep request to all servers in preference list
 	for _, peerServerId := range preferenceList {
-		reqRep := pb.PutRepRequest{Key: req.Key, Object: req.Object}
+		reqRep := pb.PutRepRequest{
+			Key: req.Key,
+			Object: req.Object,
+			Vectorclock: vc.ToDTO(s.vectorClock),
+		}
 		var err error
 		// send putRep request to servers with id peerServerId
 		go func(peerServerId int, notifyChan chan PutRepMessage) {
