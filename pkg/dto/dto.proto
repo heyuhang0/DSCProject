@@ -14,12 +14,23 @@ service KeyValueStoreInternal {
   rpc GetRep (GetRepRequest) returns (GetRepResponse) {}
 }
 
+enum SuccessStatus{
+  PARTIAL_SUCCESS = 0;
+  FULLY_SUCCESS = 1;
+}
+
+enum FoundKey {
+  KEY_NOT_FOUND = 0;
+  KEY_FOUND = 1;
+}
+
 message PutRequest {
   bytes key = 1;
   bytes object = 2;
 }
 
 message PutResponse {
+  SuccessStatus successStatus = 1;
 }
 
 message GetRequest {
@@ -28,6 +39,8 @@ message GetRequest {
 
 message GetResponse {
   bytes object = 1;
+  SuccessStatus successStatus = 2;
+  FoundKey foundKey = 3;
 }
 
 message PutRepRequest {
