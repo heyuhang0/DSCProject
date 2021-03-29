@@ -17,8 +17,8 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"github.com/spf13/cobra"
+	"os"
 
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/viper"
@@ -30,7 +30,7 @@ var cfgFile string
 var rootCmd = &cobra.Command{
 	Use:   "DSCProject",
 	Short: "A brief description of your application: This is a Distributed Systems Project",
-	Long: `This is a Distributed Systems Project`,
+	Long:  `This is a Distributed Systems Project`,
 	// Uncomment the following line if your bare application has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) { },
 }

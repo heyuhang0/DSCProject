@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/heyuhang0/DSCProject/pkg/consistent"
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
+	"github.com/heyuhang0/DSCProject/pkg/vc"
 	"github.com/syndtr/goleveldb/leveldb"
 	dberrors "github.com/syndtr/goleveldb/leveldb/errors"
 	"google.golang.org/grpc/codes"
@@ -40,6 +41,7 @@ type server struct {
 	numReplica          int
 	timeout             time.Duration
 	db                  *leveldb.DB
+	vectorClock         *vc.VectorClock
 }
 
 func (s *server) SetOtherServerInstance(otherServerInstance *sync.Map) {
@@ -62,6 +64,7 @@ func NewServer(id int, allServerID []int, numReplica, numRead, numWrite, numVNod
 		consistent:  hashRing,
 		timeout:     timeout,
 		db:          db,
+		vectorClock: vc.NewVectorClock(id),
 	}
 }
 
@@ -127,7 +130,10 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 	notifyChan := make(chan GetRepMessage, s.numReplica)
 	// send getRep request to all servers in preference list
 	for _, peerServerId := range preferenceList {
-		reqRep := pb.GetRepRequest{Key: req.Key}
+		reqRep := pb.GetRepRequest{
+			Key: req.Key,
+			Vectorclock: vc.ToDTO(s.vectorClock),
+		}
 		// send getRep request to servers with id peerServerId
 		go func(peerServerId int, notifyChan chan GetRepMessage) {
 			// gRPC context
@@ -150,6 +156,12 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 					panic("peer server is not the correct type " + strconv.Itoa(s.id))
 				}
 				dataRep, err = peerServer.GetRep(ctxRep, &reqRep)
+
+				// need to merge vector clock
+				if err == nil && dataRep != nil {
+					// if no data in the node, then skip
+					s.vectorClock.MergeClock(vc.FromDTO(dataRep.Vectorclock).Vclock)
+				}
 			}
 			// notify main routine
 			if err != nil {
@@ -231,7 +243,11 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 
 	// send PutRep request to all servers in preference list
 	for _, peerServerId := range preferenceList {
-		reqRep := pb.PutRepRequest{Key: req.Key, Object: req.Object}
+		reqRep := pb.PutRepRequest{
+			Key: req.Key,
+			Object: req.Object,
+			Vectorclock: vc.ToDTO(s.vectorClock),
+		}
 		var err error
 		// send putRep request to servers with id peerServerId
 		go func(peerServerId int, notifyChan chan PutRepMessage) {
@@ -251,7 +267,14 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 				if !ok {
 					panic("peer server is not the correct type " + strconv.Itoa(s.id))
 				}
-				_, err = peerServer.PutRep(ctxRep, &reqRep)
+				var resp *pb.PutRepResponse
+				resp, err = peerServer.PutRep(ctxRep, &reqRep)
+
+				// need to merge vector clock
+				if err == nil && resp != nil {
+					// if no data in the node, then skip
+					s.vectorClock.MergeClock(vc.FromDTO(resp.Vectorclock).Vclock)
+				}
 			}
 			notifyChan <- PutRepMessage{peerServerId, err}
 		}(peerServerId, notifyChan)
@@ -292,6 +315,8 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 // get replica issued from server responsible for the get operation
 func (s *server) GetRep(ctx context.Context, req *pb.GetRepRequest) (*pb.GetRepResponse, error) {
 	log.Printf("Getting replica for key: {%v} from local db\n", string(req.Key))
+	s.vectorClock.MergeClock(vc.FromDTO(req.Vectorclock).Vclock)
+
 	data, err := s.db.Get(req.Key, nil)
 	if err != nil {
 		if err == leveldb.ErrNotFound || err == dberrors.ErrNotFound { // key not found
@@ -299,12 +324,16 @@ func (s *server) GetRep(ctx context.Context, req *pb.GetRepRequest) (*pb.GetRepR
 		}
 		return nil, err
 	}
-	return &pb.GetRepResponse{Object: data}, nil
+	s.vectorClock.Advance()
+	return &pb.GetRepResponse{Object: data, Vectorclock: vc.ToDTO(s.vectorClock)}, nil
 }
 
 // put replica issued from server responsible for the put operation
 func (s *server) PutRep(ctx context.Context, req *pb.PutRepRequest) (*pb.PutRepResponse, error) {
 	log.Printf("Putting replica key: {%v}, val: {%v} to local db", string(req.Key), string(req.Object))
+	s.vectorClock.MergeClock(vc.FromDTO(req.Vectorclock).Vclock)
+
 	err := s.db.Put(req.Key, req.Object, nil)
-	return &pb.PutRepResponse{}, err
+	s.vectorClock.Advance()
+	return &pb.PutRepResponse{Vectorclock: vc.ToDTO(s.vectorClock)}, err
 }
