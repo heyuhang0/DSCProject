@@ -4,45 +4,67 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/heyuhang0/DSCProject/pkg/consistent"
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
 	"github.com/heyuhang0/DSCProject/pkg/vc"
 	"github.com/syndtr/goleveldb/leveldb"
+	dberrors "github.com/syndtr/goleveldb/leveldb/errors"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"log"
 	"strconv"
 	"sync"
+	"time"
 )
 
-type Consistent struct {
-	consistentStructure []int
+type GetRepMessage struct {
+	id   int
+	err  error
+	data []byte
+}
+
+type PutRepMessage struct {
+	id  int
+	err error
 }
 
 type server struct {
 	pb.UnimplementedKeyValueStoreServer
 	pb.UnimplementedKeyValueStoreInternalServer
-	id          int
-	allServerID []int
-	//otherServerInstance []pb.KeyValueStoreInternalClient
-	otherServerInstance map[int]pb.KeyValueStoreInternalClient
-	Consistent          Consistent
+	id                  int
+	allServerID         []int
+	otherServerInstance *sync.Map
+	consistent          *consistent.Consistent
 	numDescendants      int
 	numRead             int
 	numWrite            int
 	numReplica          int
+	timeout             time.Duration
 	db                  *leveldb.DB
 	vectorClock         *vc.VectorClock
 }
 
-func (s *server) SetOtherServerInstance(otherServerInstance map[int]pb.KeyValueStoreInternalClient) {
+func (s *server) SetOtherServerInstance(otherServerInstance *sync.Map) {
 	s.otherServerInstance = otherServerInstance
 }
 
-func (s *server) SetConsistent(consistent Consistent) {
-	s.Consistent = consistent
-}
-
 // create a new server
-func NewServer(id int, allServerID []int, numReplica, numRead, numWrite int, db *leveldb.DB) *server {
-	return &server{id: id, allServerID: allServerID, numReplica: numReplica, numRead: numRead, numWrite: numWrite, db: db, vectorClock: vc.NewVectorClock(id)}
+func NewServer(id int, allServerID []int, numReplica, numRead, numWrite, numVNodes int, timeout time.Duration, db *leveldb.DB) *server {
+	hashRing := consistent.NewConsistent(numVNodes)
+	for _, serverID := range allServerID {
+		hashRing.AddNode(uint64(serverID))
+	}
+
+	return &server{
+		id:          id,
+		allServerID: allServerID,
+		numReplica:  numReplica,
+		numRead:     numRead,
+		numWrite:    numWrite,
+		consistent:  hashRing,
+		timeout:     timeout,
+		db:          db,
+	}
 }
 
 // contains
@@ -75,163 +97,223 @@ func allSame(data [][]byte) bool {
 	return true
 }
 
-// not used any more
-func (s *server) GetDescendants() ([]pb.KeyValueStoreInternalClient, error) {
-	numPeerReplica := s.numReplica
-	if numPeerReplica > len(s.allServerID) {
-		return nil, errors.New("descendents number bigger than total machine number")
-	}
-	var descendants []pb.KeyValueStoreInternalClient
-	idIndex := indexOf(s.id, s.allServerID)
-	for i := 1; i <= numPeerReplica; i++ {
-		index := (idIndex + i) % len(s.allServerID)
-		if index < idIndex {
-			descendants = append(descendants, s.otherServerInstance[index])
-		} else if index > idIndex {
-			descendants = append(descendants, s.otherServerInstance[index-1])
-		}
-	}
-	return descendants, nil
-}
-
-func (s *server) GetMockPreferenceList(key []byte) ([]int, error) {
+func (s *server) GetPreferenceList(key []byte) ([]int, error) {
 	numPeerReplica := s.numReplica
 	if numPeerReplica > len(s.allServerID) {
 		return nil, errors.New("replica number bigger than total machine number")
 	}
 	var preferenceList []int
-	idIndex := indexOf(s.id, s.allServerID)
-	for i := 0; i < numPeerReplica; i++ {
-		index := (idIndex + i) % len(s.allServerID)
-		preferenceList = append(preferenceList, s.allServerID[index])
+	for _, serverID := range s.consistent.GetNodes(key, numPeerReplica) {
+		preferenceList = append(preferenceList, int(serverID))
 	}
 	return preferenceList, nil
 }
 
 // get key, issued from client
 func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
-	log.Println("Received GET request from clients")
-	preferenceList, err := s.GetMockPreferenceList(req.Key)
-	if err != nil {
-		return nil, err
+	keyString := string(req.Key)
+	log.Printf("Received GET REQUEST from clients for key {%v}\n", keyString)
+
+	// get preference list for the key
+	preferenceList, errGetPref := s.GetPreferenceList(req.Key)
+	if errGetPref != nil {
+		return nil, errGetPref
 	}
 
 	// check if myself is in preference list
 	if !contains(preferenceList, s.id) {
 		// need to forward the message to the one in preference list, haven't implemented
-		log.Println("need to forward the get request to other server, I am not in preference list")
+		log.Printf("need to forward the get request to other server, I am not in preference list")
 	}
 
-	// need numRead to finish this operation
-	var wg sync.WaitGroup
-	wg.Add(s.numReplica)
-	var vals [][]byte
-
+	notifyChan := make(chan GetRepMessage, s.numReplica)
+	// send getRep request to all servers in preference list
 	for _, peerServerId := range preferenceList {
-		// if it is server it self
-		if peerServerId == s.id {
-			go func() {
-				defer wg.Done()
-				data, err := s.db.Get(req.Key, nil)
-				if err == nil {
-					vals = append(vals, data)
+		reqRep := pb.GetRepRequest{Key: req.Key}
+		// send getRep request to servers with id peerServerId
+		go func(peerServerId int, notifyChan chan GetRepMessage) {
+			// gRPC context
+			clientDeadline := time.Now().Add(s.timeout)
+			ctxRep, cancel := context.WithDeadline(ctx, clientDeadline)
+			defer cancel()
+
+			var dataRep *pb.GetRepResponse
+			var err error
+			// myself
+			if peerServerId == s.id {
+				dataRep, err = s.GetRep(ctxRep, &reqRep)
+			} else { // other servers
+				peerServerInterface, exist := s.otherServerInstance.Load(peerServerId)
+				if !exist {
+					panic("peer id is not stored in server " + strconv.Itoa(s.id))
 				}
-			}()
-			continue
-		}
-		peerServer, exist := s.otherServerInstance[peerServerId]
-		if !exist {
-			panic("peer id is not stored in server " + strconv.Itoa(s.id))
-		}
-		go func(peerServer pb.KeyValueStoreInternalClient) {
-			defer wg.Done()
-			s.vectorClock.Advance()
-			reqRep := pb.GetRepRequest{Key: req.Key, Vectorclock: vc.ToDTO(s.vectorClock)}
-			dataRep, errRoutine := peerServer.GetRep(ctx, &reqRep)
-			// need to merge vector clock
-			if dataRep != nil {
-				// if no data in the node, then skip
-				s.vectorClock.MergeClock(vc.FromDTO(dataRep.Vectorclock).Vclock)
+				peerServer, ok := peerServerInterface.(pb.KeyValueStoreInternalClient)
+				if !ok {
+					panic("peer server is not the correct type " + strconv.Itoa(s.id))
+				}
+				dataRep, err = peerServer.GetRep(ctxRep, &reqRep)
+
+				// need to merge vector clock
+				if err == nil && dataRep != nil {
+					// if no data in the node, then skip
+					s.vectorClock.MergeClock(vc.FromDTO(dataRep.Vectorclock).Vclock)
+				}
 			}
-			// skip nil value for now
-			if errRoutine != nil {
-				return
+			// notify main routine
+			if err != nil {
+				notifyChan <- GetRepMessage{peerServerId, err, nil}
+			} else {
+				notifyChan <- GetRepMessage{peerServerId, nil, dataRep.Object}
 			}
-			log.Println("Received replica from peer server")
-			vals = append(vals, dataRep.Object)
-		}(peerServer)
+		}(peerServerId, notifyChan)
 	}
 
-	// wait for {numRead} reads to finish
-	wg.Wait()
-
+	var vals [][]byte
+	successCount := 0
+	errorMsg := "ERROR MESSAGE: "
+	for i := 0; i < len(preferenceList); i++ {
+		select {
+		case notifyMsg := <-notifyChan:
+			if notifyMsg.err == nil {
+				log.Printf("Received GET repica response from server %v for key {%v}: val {%v}", notifyMsg.id, keyString, string(notifyMsg.data))
+				successCount++
+				vals = append(vals, notifyMsg.data)
+			} else if e, ok := status.FromError(notifyMsg.err); ok && e.Code() == codes.NotFound { // key not found
+				log.Printf("Received GET repica response from server %v for key {%v}: key not found", notifyMsg.id, keyString)
+				successCount++
+			} else {
+				errorMsg = errorMsg + notifyMsg.err.Error() + ";"
+				log.Printf("Received GET repica response from server %v for key {%v}: occured error: %v", notifyMsg.id, keyString, notifyMsg.err.Error())
+			}
+		//	timeout
+		case <-time.After(s.timeout):
+			break
+		}
+		if successCount >= s.numRead {
+			break
+		}
+	}
+	log.Printf("Finished GETTING replica for key {%v}, received {%v} response", keyString, successCount)
+	// all server in preference list are down
+	if successCount == 0 {
+		return nil, errors.New(errorMsg)
+	}
+	// at least one successful response
+	successStatus := pb.SuccessStatus_PARTIAL_SUCCESS
+	// at least numRead requirements
+	if successCount >= s.numRead {
+		successStatus = pb.SuccessStatus_FULLY_SUCCESS
+	}
+	// all server does not have values: key does not exist in db
 	if len(vals) == 0 {
-		return nil, errors.New("key not found")
+		return &pb.GetResponse{Object: nil, SuccessStatus: successStatus, FoundKey: pb.FoundKey_KEY_NOT_FOUND}, nil
 	}
-
 	// check if all the element are same and return different things
 	if allSame(vals) {
-		return &pb.GetResponse{Object: vals[0]}, nil
+		return &pb.GetResponse{Object: vals[0], SuccessStatus: successStatus, FoundKey: pb.FoundKey_KEY_FOUND}, nil
 	} else {
-		return &pb.GetResponse{Object: vals[0]}, nil
+		// TODO: return the arbitrary latest value
+		return &pb.GetResponse{Object: vals[0], SuccessStatus: successStatus, FoundKey: pb.FoundKey_KEY_FOUND}, nil
 	}
 }
 
 // Put key issued from the client
 func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
-	log.Println("Received PUT request from clients")
-	preferenceList, err := s.GetMockPreferenceList(req.Key)
-	if err != nil {
-		return nil, err
+	keyString := string(req.Key)
+	valString := string(req.Object)
+	log.Printf("Received PUT request from clients: key {%v}, val{%v}", keyString, valString)
+
+	// get preference list for the key
+	preferenceList, errGetPref := s.GetPreferenceList(req.Key)
+	if errGetPref != nil {
+		return nil, errGetPref
 	}
 	// check if myself is in preference list
 	if !contains(preferenceList, s.id) {
 		// need to forward the message to the one in preference list, haven't implemented
-		log.Println("need to forward the get request to other server, I am not in preference list")
+		log.Printf("need to forward the get request to other server, I am not in preference list")
 	}
 
 	// need numWrite to finish the operation
-	var wg sync.WaitGroup
-	wg.Add(s.numReplica)
+	notifyChan := make(chan PutRepMessage, s.numReplica)
 
+	// send PutRep request to all servers in preference list
 	for _, peerServerId := range preferenceList {
-		if peerServerId == s.id {
-			go func() {
-				defer wg.Done()
-				err = s.db.Put(req.Key, req.Object, nil)
-				log.Println("finish put local")
-			}()
-			continue
-		}
-		peerServer, exist := s.otherServerInstance[peerServerId]
-		if !exist {
-			panic("peer id is not stored in server " + strconv.Itoa(s.id))
-		}
-		go func(peerServer pb.KeyValueStoreInternalClient) {
-			defer wg.Done()
-			s.vectorClock.Advance()
-			reqRep := pb.PutRepRequest{Key: req.Key, Object: req.Object, Vectorclock: vc.ToDTO(s.vectorClock)}
-			repRes, errRoutine := peerServer.PutRep(context.Background(), &reqRep)
-			// need to merge
-			s.vectorClock.MergeClock(vc.FromDTO(repRes.Vectorclock).Vclock)
-			log.Printf("finish put remote %v error %v", peerServer, err)
-			if errRoutine != nil {
-				err = errRoutine
-			}
-		}(peerServer)
-	}
-	// wait for {numWrite} reads to finish
-	wg.Wait()
+		reqRep := pb.PutRepRequest{Key: req.Key, Object: req.Object}
+		var err error
+		// send putRep request to servers with id peerServerId
+		go func(peerServerId int, notifyChan chan PutRepMessage) {
+			// gPRC context
+			clientDeadline := time.Now().Add(s.timeout)
+			ctxRep, cancel := context.WithDeadline(ctx, clientDeadline)
+			defer cancel()
+			// myself
+			if peerServerId == s.id {
+				_, err = s.PutRep(ctxRep, &reqRep)
+			} else { // other server
+				peerServerInterface, exist := s.otherServerInstance.Load(peerServerId)
+				if !exist {
+					panic("peer id is not stored in server " + strconv.Itoa(s.id))
+				}
+				peerServer, ok := peerServerInterface.(pb.KeyValueStoreInternalClient)
+				if !ok {
+					panic("peer server is not the correct type " + strconv.Itoa(s.id))
+				}
+				var resp *pb.PutRepResponse
+				resp, err = peerServer.PutRep(ctxRep, &reqRep)
 
-	return &pb.PutResponse{}, err
+				// need to merge vector clock
+				if err == nil && resp != nil {
+					// if no data in the node, then skip
+					s.vectorClock.MergeClock(vc.FromDTO(resp.Vectorclock).Vclock)
+				}
+			}
+			notifyChan <- PutRepMessage{peerServerId, err}
+		}(peerServerId, notifyChan)
+	}
+
+	successCount := 0
+	errorMsg := "ERROR MESSAGE: "
+	for i := 0; i < len(preferenceList); i++ {
+		select {
+		case notifyMsg := <-notifyChan:
+			if notifyMsg.err == nil {
+				log.Printf("Received PUT repica response from server %v for key {%v} val {%v}: SUCCESS", notifyMsg.id, keyString, valString)
+				successCount++
+			} else {
+				errorMsg = errorMsg + notifyMsg.err.Error() + ";"
+				log.Printf("Received PUT repica response from server %v for key {%v} val {%v}: ERROR occured: %v\n", notifyMsg.id, keyString, valString, notifyMsg.err.Error())
+			}
+		case <-time.After(s.timeout):
+			break
+		}
+		if successCount >= 3 {
+			break
+		}
+	}
+
+	log.Printf("Finished PUTTING replica for key {%v} val {%v}, received {%v} response", keyString, valString, successCount)
+	// all servers failed
+	if successCount == 0 {
+		return nil, errors.New(errorMsg)
+	}
+	// meet numWrite requirements
+	if successCount >= s.numWrite {
+		return &pb.PutResponse{SuccessStatus: pb.SuccessStatus_FULLY_SUCCESS}, nil
+	}
+	return &pb.PutResponse{SuccessStatus: pb.SuccessStatus_PARTIAL_SUCCESS}, nil
 }
 
 // get replica issued from server responsible for the get operation
 func (s *server) GetRep(ctx context.Context, req *pb.GetRepRequest) (*pb.GetRepResponse, error) {
-	log.Println("getting replica")
+	log.Printf("Getting replica for key: {%v} from local db\n", string(req.Key))
 	s.vectorClock.MergeClock(vc.FromDTO(req.Vectorclock).Vclock)
+
 	data, err := s.db.Get(req.Key, nil)
 	if err != nil {
+		if err == leveldb.ErrNotFound || err == dberrors.ErrNotFound { // key not found
+			return nil, status.Error(codes.NotFound, "LEVELDB KEY NOT FOUND")
+		}
 		return nil, err
 	}
 	s.vectorClock.Advance()
@@ -240,8 +322,9 @@ func (s *server) GetRep(ctx context.Context, req *pb.GetRepRequest) (*pb.GetRepR
 
 // put replica issued from server responsible for the put operation
 func (s *server) PutRep(ctx context.Context, req *pb.PutRepRequest) (*pb.PutRepResponse, error) {
-	log.Println("putting replica")
+	log.Printf("Putting replica key: {%v}, val: {%v} to local db", string(req.Key), string(req.Object))
 	s.vectorClock.MergeClock(vc.FromDTO(req.Vectorclock).Vclock)
+
 	err := s.db.Put(req.Key, req.Object, nil)
 	s.vectorClock.Advance()
 	return &pb.PutRepResponse{Vectorclock: vc.ToDTO(s.vectorClock)}, err

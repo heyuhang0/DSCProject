@@ -3,9 +3,44 @@
   "NumReplica":4,
   "NumRead": 3,
   "NumWrite": 3,
-  "Ids": [5001,5002,5003,5004,5005],
-  "ServerPortInternal": [5001, 5002, 5003, 5004, 5005],
-  "ServerPortExternal": [6001, 6002, 6003, 6004, 6005],
-  "ServerIPInternal": ["localhost", "localhost", "localhost", "localhost", "localhost"],
-  "ServerIPExternal": ["localhost", "localhost", "localhost", "localhost", "localhost"]
+  "NumVirtualNodes": 10,
+  "Timeout": 1000,
+  "Ids":[5001,5002,5003,5004,5005],
+  "Servers": [
+    {
+      "Id": 5001,
+      "IpInternal": "localhost",
+      "IpExternal": "localhost",
+      "PortInternal": 5001,
+      "PortExternal": 6001
+    },
+    {
+      "Id": 5002,
+      "IpInternal": "localhost",
+      "IpExternal": "localhost",
+      "PortInternal": 5002,
+      "PortExternal": 6002
+    },
+    {
+      "Id": 5003,
+      "IpInternal": "localhost",
+      "IpExternal": "localhost",
+      "PortInternal": 5003,
+      "PortExternal": 6003
+    },
+    {
+      "Id": 5004,
+      "IpInternal": "localhost",
+      "IpExternal": "localhost",
+      "PortInternal": 5004,
+      "PortExternal": 6004
+    },
+    {
+      "Id": 5005,
+      "IpInternal": "localhost",
+      "IpExternal": "localhost",
+      "PortInternal": 5005,
+      "PortExternal": 6005
+    }
+  ]
 }
