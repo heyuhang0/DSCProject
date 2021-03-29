@@ -3,6 +3,7 @@ module github.com/heyuhang0/DSCProject
 go 1.16
 
 require (
+	github.com/cespare/xxhash v1.1.0
 	github.com/golang/protobuf v1.4.3
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/montanaflynn/stats v0.6.5

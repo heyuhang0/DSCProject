@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/cespare/xxhash"
 	"github.com/heyuhang0/DSCProject/pkg/dto"
-	"hash/fnv"
 	"sort"
 	"sync"
 )
@@ -34,9 +34,7 @@ func (r uint64Slice) Less(i, j int) bool { return r[i] < r[j] }
 func (r uint64Slice) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
 
 func defaultHash(key []byte) uint64 {
-	h := fnv.New64a()
-	_, _ = h.Write(key)
-	return h.Sum64()
+	return xxhash.Sum64(key)
 }
 
 func NewConsistent(numVNodes int) *Consistent {
