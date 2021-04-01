@@ -7,6 +7,7 @@ package dto;
 service KeyValueStore {
   rpc Put (PutRequest) returns (PutResponse) {}
   rpc Get (GetRequest) returns (GetResponse) {}
+  rpc GetRing (GetRingRequest) returns (GetRingResponse) {}
 }
 
 service KeyValueStoreInternal {
@@ -76,4 +77,12 @@ message GetRepResponse {
 message Consistent {
   int64 numVNodes = 1;
   repeated uint64 nodes = 2 [packed = true];
+}
+
+message GetRingRequest {
+
+}
+
+message GetRingResponse {
+  Consistent consistent = 1;
 }
