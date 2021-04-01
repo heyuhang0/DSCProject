@@ -92,8 +92,13 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 		log.Printf("need to forward the get request to other server, I am not in preference list")
 	}
 
-	notifyChan := make(chan GetRepMessage, s.numReplica)
+	// context to get replicas
+	clientDeadline := time.Now().Add(s.timeout)
+	ctxRep, cancelRep := context.WithDeadline(ctx, clientDeadline)
+	defer cancelRep()
+
 	// send getRep request to all servers in preference list
+	notifyChan := make(chan GetRepMessage, s.numReplica)
 	for _, peerServerId := range preferenceList {
 		reqRep := pb.GetRepRequest{
 			Key:         req.Key,
@@ -101,11 +106,6 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 		}
 		// send getRep request to servers with id peerServerId
 		go func(peerServerId int, notifyChan chan GetRepMessage) {
-			// gRPC context
-			clientDeadline := time.Now().Add(s.timeout)
-			ctxRep, cancel := context.WithDeadline(ctx, clientDeadline)
-			defer cancel()
-
 			var dataRep *pb.GetRepResponse
 			var err error
 			// myself
@@ -138,6 +138,7 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 	}
 
 	var vals []*pb.VersionedData
+
 	successCount := 0
 	errorMsg := "ERROR MESSAGE: "
 	for i := 0; i < len(preferenceList); i++ {
@@ -155,10 +156,9 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 				log.Printf("Received GET repica response from server %v for key {%v}: occured error: %v", notifyMsg.id, keyString, notifyMsg.err.Error())
 			}
 		//	timeout
-		case <-time.After(s.timeout):
-			break
+		case <-ctxRep.Done():
 		}
-		if successCount >= s.numRead {
+		if ctxRep.Err() != nil || successCount >= s.numRead {
 			break
 		}
 	}
@@ -208,6 +208,11 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 	// need numWrite to finish the operation
 	notifyChan := make(chan PutRepMessage, s.numReplica)
 
+	// context to get replicas
+	clientDeadline := time.Now().Add(s.timeout)
+	ctxRep, cancelRep := context.WithDeadline(ctx, clientDeadline)
+	defer cancelRep()
+
 	// send PutRep request to all servers in preference list
 	timestamp := vc.ToDTO(s.vectorClock)
 	reqRep := &pb.PutRepRequest{
@@ -222,10 +227,6 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 		var err error
 		// send putRep request to servers with id peerServerId
 		go func(peerServerId int, notifyChan chan PutRepMessage) {
-			// gPRC context
-			clientDeadline := time.Now().Add(s.timeout)
-			ctxRep, cancel := context.WithDeadline(ctx, clientDeadline)
-			defer cancel()
 			// myself
 			if peerServerId == s.id {
 				_, err = s.PutRep(ctxRep, reqRep)
@@ -263,10 +264,9 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 				errorMsg = errorMsg + notifyMsg.err.Error() + ";"
 				log.Printf("Received PUT repica response from server %v for key {%v} val {%v}: ERROR occured: %v\n", notifyMsg.id, keyString, valString, notifyMsg.err.Error())
 			}
-		case <-time.After(s.timeout):
-			break
+		case <-ctxRep.Done():
 		}
-		if successCount >= 3 {
+		if ctxRep.Err() != nil || successCount >= 3 {
 			break
 		}
 	}
