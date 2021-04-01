@@ -1,6 +1,6 @@
 {
   "NumVirtualNodes": 10,
-  "NodeTimeoutMs": 500,
+  "NodeTimeoutMs": 1000,
   "SeedNodes": [
     {
       "ID": 5001,

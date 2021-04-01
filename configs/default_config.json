@@ -4,7 +4,7 @@
   "NumRead": 3,
   "NumWrite": 3,
   "NumVirtualNodes": 10,
-  "Timeout": 1000,
+  "Timeout": 500,
   "Ids":[5001,5002,5003,5004,5005],
   "Servers": [
     {
