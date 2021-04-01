@@ -282,7 +282,3 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 	}
 	return &pb.PutResponse{SuccessStatus: pb.SuccessStatus_PARTIAL_SUCCESS}, nil
 }
-
-func (s *server) GetRing(ctx context.Context, req *pb.GetRingRequest) (*pb.GetRingResponse, error) {
-	return &pb.GetRingResponse{Consistent: s.consistent.ToDTO()}, nil
-}
