@@ -108,17 +108,24 @@ func (k *KeyValueStoreClient) retryForEveryNode(ctx context.Context, key []byte,
 		if err != nil {
 			cancel()
 			errorMessages = append(errorMessages, err.Error())
+			if ctx.Err() != nil {
+				break
+			}
 			continue
 		}
+
 		err = do(nodeCtx, client)
 		cancel()
-		if err != nil {
-			errorMessages = append(errorMessages, err.Error())
-			continue
+		if err == nil {
+			return nil
 		}
-		return nil
+
+		errorMessages = append(errorMessages, err.Error())
+		if ctx.Err() != nil {
+			break
+		}
 	}
-	return fmt.Errorf("multiple errors encountered: %v", strings.Join(errorMessages, ", "))
+	return fmt.Errorf("multiple errors encountered: %v", strings.Join(errorMessages, "; "))
 }
 
 func (k *KeyValueStoreClient) Put(ctx context.Context, in *pb.PutRequest, opts ...grpc.CallOption) (response *pb.PutResponse, err error) {
