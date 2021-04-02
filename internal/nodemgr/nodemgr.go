@@ -70,6 +70,7 @@ type Manager struct {
 	mu sync.RWMutex
 
 	nodes        NodeHistory
+	numVNodes    int
 	consistent   *consistent.Consistent
 	internalPool map[string]pb.KeyValueStoreInternalClient
 	timers       map[uint64]*time.Timer
@@ -78,6 +79,7 @@ type Manager struct {
 func NewManager(numVNodes int) *Manager {
 	return &Manager{
 		nodes:        make(NodeHistory),
+		numVNodes:    numVNodes,
 		consistent:   consistent.NewConsistent(numVNodes),
 		internalPool: make(map[string]pb.KeyValueStoreInternalClient),
 		timers:       make(map[uint64]*time.Timer),
@@ -195,7 +197,9 @@ func (m *Manager) GetInternalClient(nodeID uint64) (pb.KeyValueStoreInternalClie
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if client, ok := m.internalPool[nodeInfo.InternalAddress]; ok { return client, nil }
+	if client, ok := m.internalPool[nodeInfo.InternalAddress]; ok {
+		return client, nil
+	}
 
 	conn, err := grpc.Dial(nodeInfo.InternalAddress, grpc.WithInsecure())
 	if err != nil {
