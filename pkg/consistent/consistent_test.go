@@ -178,15 +178,3 @@ func TestConsistent_Redistribute(t *testing.T) {
 	fmt.Println("Nodes Load\t\t", countLoad(mapping7))
 	fmt.Println("Redistributed\t", countRedistributed(mapping6, mapping7))
 }
-
-func TestConsistent_ToDTO(t *testing.T) {
-	consistent := NewConsistent(10)
-	for i := 0; i < 5; i ++ {
-		consistent.AddNode(uint64(i))
-	}
-	consistentFromDTO := FromDTO(consistent.ToDTO())
-
-	for i := 0; i < 1000; i ++ {
-		assert.Equal(t, consistent.GetNodes(i, 3), consistentFromDTO.GetNodes(i, 3))
-	}
-}
