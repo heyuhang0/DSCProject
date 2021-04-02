@@ -1,7 +1,7 @@
 package server
 
 import (
-	"github.com/heyuhang0/DSCProject/internal/server/nodemgr"
+	"github.com/heyuhang0/DSCProject/internal/nodemgr"
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
 	"github.com/heyuhang0/DSCProject/pkg/vc"
 	"github.com/syndtr/goleveldb/leveldb"

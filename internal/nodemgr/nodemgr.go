@@ -40,7 +40,7 @@ type Manager struct {
 	nodes        NodeHistory
 	consistent   *consistent.Consistent
 	internalPool map[string]pb.KeyValueStoreInternalClient
-	timers		 map[uint64]*time.Timer
+	timers       map[uint64]*time.Timer
 }
 
 func NewManager(numVNodes int) *Manager {
