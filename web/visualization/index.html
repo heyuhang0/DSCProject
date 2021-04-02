@@ -2,6 +2,7 @@
 <html>
 
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cluster Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@2.8.0"></script>
 </head>
@@ -50,6 +51,22 @@
 
     .side-panel {
         margin-left: 70%;
+    }
+
+    @media only screen and (max-width: 810px) {
+        main {
+            padding: 0 20px;
+        }
+
+        .main-panel {
+            width: 100%;
+            float: none;
+            margin-bottom: 40px;
+        }
+
+        .side-panel {
+            margin-left: 0;
+        }
     }
 
     #nodes {
