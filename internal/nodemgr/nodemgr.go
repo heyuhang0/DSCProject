@@ -52,6 +52,20 @@ func (n NodeHistory) ToDTO() map[uint64]*pb.NodeInfo {
 	return result
 }
 
+func NodeHistoryFromDTO(in map[uint64]*pb.NodeInfo) NodeHistory {
+	result := make(NodeHistory)
+	for key, value := range in {
+		result[key] = &NodeInfo{
+			ID:              value.Id,
+			Alive:           value.Alive,
+			InternalAddress: value.InternalAddress,
+			ExternalAddress: value.ExternalAddress,
+			Version:         value.Version,
+		}
+	}
+	return result
+}
+
 type Manager struct {
 	mu sync.RWMutex
 
@@ -128,16 +142,18 @@ func (m *Manager) UpdateNodeWithExpire(node *NodeInfo, expire time.Duration) {
 	})
 }
 
-func (m *Manager) ExportHistory() NodeHistory {
+func (m *Manager) ExportHistory() map[uint64]*pb.NodeInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	return m.nodes.Copy()
+	return m.nodes.ToDTO()
 }
 
-func (m *Manager) ImportHistory(history NodeHistory) {
+func (m *Manager) ImportHistory(historyDTO map[uint64]*pb.NodeInfo) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	history := NodeHistoryFromDTO(historyDTO)
 
 	for nodeID, info := range history {
 		curr, ok := m.nodes[nodeID]

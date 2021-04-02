@@ -254,7 +254,7 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 func (s *server) GetRing(ctx context.Context, req *pb.GetRingRequest) (*pb.GetRingResponse, error) {
 	return &pb.GetRingResponse{
 		NumVNodes: int64(s.numVNodes),
-		Nodes:     s.nodes.ExportHistory().ToDTO(),
+		Nodes:     s.nodes.ExportHistory(),
 	}, nil
 }
 
