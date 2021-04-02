@@ -1,10 +1,8 @@
 package nodemgr
 
 import (
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"github.com/cespare/xxhash"
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
 	"log"
 	"net/http"
@@ -12,17 +10,11 @@ import (
 
 type dashboardNodeInfo struct {
 	*pb.NodeInfo
-	VirtualNodes []uint64 `json:"virtualNodes,omitempty"`
+	VirtualNodes []uint64 `json:"virtualNodes"`
 }
 
 type dashboardState struct {
-	Nodes map[uint64]*dashboardNodeInfo `json:"nodes,omitempty"`
-}
-
-func hashUint64(val uint64) uint64 {
-	bs := make([]byte, 8)
-	binary.LittleEndian.PutUint64(bs, val)
-	return xxhash.Sum64(bs)
+	Nodes map[uint64]*dashboardNodeInfo `json:"nodes"`
 }
 
 func (m *Manager) ServeDashboard(addr string) error {
@@ -38,11 +30,12 @@ func (m *Manager) ServeDashboard(addr string) error {
 			Nodes: make(map[uint64]*dashboardNodeInfo),
 		}
 
+		virtualNodesOfNode := m.consistent.ExportVirtualNodes()
 		for key, nodeInfo := range history {
-			virtualNodes := make([]uint64, m.numVNodes)
-			virtualNodes[0] = hashUint64(nodeInfo.Id)
-			for i := 1; i < len(virtualNodes); i ++ {
-				virtualNodes[i] = hashUint64(virtualNodes[i-1])
+			var virtualNodes []uint64
+			var ok bool
+			if virtualNodes, ok = virtualNodesOfNode[key]; !ok {
+				virtualNodes = make([]uint64, 0)
 			}
 			state.Nodes[key] = &dashboardNodeInfo{
 				NodeInfo:     nodeInfo,
