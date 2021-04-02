@@ -99,7 +99,7 @@ func main() {
 	}
 
 	// create server instance
-	newServer := server.NewServer(nodeId, numReplica, numRead, numWrite, timeout, nodeManager, db)
+	newServer := server.NewServer(nodeId, numReplica, numRead, numVNodes, numWrite, timeout, nodeManager, db)
 
 	// listen to external and internal ports
 	internalAddress := localServer.IpInternal + ":" + strconv.Itoa(localServer.PortInternal)

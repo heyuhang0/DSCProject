@@ -24,6 +24,16 @@ func (n *NodeInfo) Copy() *NodeInfo {
 	return &copied
 }
 
+func (n *NodeInfo) ToDTO() *pb.NodeInfo {
+	return &pb.NodeInfo{
+		Id:              n.ID,
+		Alive:           n.Alive,
+		InternalAddress: n.InternalAddress,
+		ExternalAddress: n.ExternalAddress,
+		Version:         n.Version,
+	}
+}
+
 type NodeHistory map[uint64]*NodeInfo
 
 func (n NodeHistory) Copy() NodeHistory {
@@ -32,6 +42,14 @@ func (n NodeHistory) Copy() NodeHistory {
 		copied[key] = value.Copy()
 	}
 	return copied
+}
+
+func (n NodeHistory) ToDTO() map[uint64]*pb.NodeInfo {
+	result := make(map[uint64]*pb.NodeInfo)
+	for key, value := range n {
+		result[key] = value.ToDTO()
+	}
+	return result
 }
 
 type Manager struct {

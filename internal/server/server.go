@@ -14,10 +14,11 @@ type server struct {
 
 	id uint64
 
-	numRead        int
-	numWrite       int
-	numReplica     int
-	timeout        time.Duration
+	numRead    int
+	numWrite   int
+	numReplica int
+	numVNodes  int
+	timeout    time.Duration
 
 	nodes       *nodemgr.Manager
 	db          *leveldb.DB
@@ -25,12 +26,13 @@ type server struct {
 }
 
 // create a new server
-func NewServer(id uint64, numReplica, numRead, numWrite int, timeout time.Duration, nodes *nodemgr.Manager, db *leveldb.DB) *server {
+func NewServer(id uint64, numReplica, numRead, numWrite, numVNodes int, timeout time.Duration, nodes *nodemgr.Manager, db *leveldb.DB) *server {
 	return &server{
 		id:          id,
 		numReplica:  numReplica,
 		numRead:     numRead,
 		numWrite:    numWrite,
+		numVNodes:   numVNodes,
 		timeout:     timeout,
 		nodes:       nodes,
 		db:          db,

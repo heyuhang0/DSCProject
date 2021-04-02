@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion7
 type KeyValueStoreClient interface {
 	Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutResponse, error)
 	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
+	GetRing(ctx context.Context, in *GetRingRequest, opts ...grpc.CallOption) (*GetRingResponse, error)
 }
 
 type keyValueStoreClient struct {
@@ -48,12 +49,22 @@ func (c *keyValueStoreClient) Get(ctx context.Context, in *GetRequest, opts ...g
 	return out, nil
 }
 
+func (c *keyValueStoreClient) GetRing(ctx context.Context, in *GetRingRequest, opts ...grpc.CallOption) (*GetRingResponse, error) {
+	out := new(GetRingResponse)
+	err := c.cc.Invoke(ctx, "/dto.KeyValueStore/GetRing", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // KeyValueStoreServer is the server API for KeyValueStore service.
 // All implementations must embed UnimplementedKeyValueStoreServer
 // for forward compatibility
 type KeyValueStoreServer interface {
 	Put(context.Context, *PutRequest) (*PutResponse, error)
 	Get(context.Context, *GetRequest) (*GetResponse, error)
+	GetRing(context.Context, *GetRingRequest) (*GetRingResponse, error)
 	mustEmbedUnimplementedKeyValueStoreServer()
 }
 
@@ -66,6 +77,9 @@ func (UnimplementedKeyValueStoreServer) Put(context.Context, *PutRequest) (*PutR
 }
 func (UnimplementedKeyValueStoreServer) Get(context.Context, *GetRequest) (*GetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
+}
+func (UnimplementedKeyValueStoreServer) GetRing(context.Context, *GetRingRequest) (*GetRingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRing not implemented")
 }
 func (UnimplementedKeyValueStoreServer) mustEmbedUnimplementedKeyValueStoreServer() {}
 
@@ -116,6 +130,24 @@ func _KeyValueStore_Get_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _KeyValueStore_GetRing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KeyValueStoreServer).GetRing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/dto.KeyValueStore/GetRing",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KeyValueStoreServer).GetRing(ctx, req.(*GetRingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // KeyValueStore_ServiceDesc is the grpc.ServiceDesc for KeyValueStore service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -130,6 +162,10 @@ var KeyValueStore_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Get",
 			Handler:    _KeyValueStore_Get_Handler,
+		},
+		{
+			MethodName: "GetRing",
+			Handler:    _KeyValueStore_GetRing_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

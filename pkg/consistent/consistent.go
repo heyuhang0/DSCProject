@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/cespare/xxhash"
-	"github.com/heyuhang0/DSCProject/pkg/dto"
 	"sort"
 	"sync"
 )
@@ -222,30 +221,4 @@ func (r *Consistent) GetNodes(key interface{}, num int) []uint64 {
 		nodeSet[node] = nil
 	}
 	return nodes
-}
-
-func (r *Consistent) ToDTO() *dto.Consistent {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	nodes := make([]uint64, 0, len(r.nodeToVNodes))
-	for node := range r.nodeToVNodes {
-		nodes = append(nodes, node)
-	}
-	return &dto.Consistent{
-		NumVNodes: int64(r.numVNodes),
-		Nodes:     nodes,
-	}
-}
-
-func FromDTO(dto *dto.Consistent) *Consistent {
-	return FromDTOWithHash(dto, defaultHash)
-}
-
-func FromDTOWithHash(dto *dto.Consistent, hash func(key []byte) uint64) *Consistent {
-	consistent := NewConsistentWithHash(int(dto.NumVNodes), hash)
-	for _, node := range dto.Nodes {
-		consistent.AddNode(node)
-	}
-	return consistent
 }
