@@ -2,14 +2,111 @@
 <html>
 
 <head>
-    <title>Pie Chart</title>
+    <title>Cluster Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@2.8.0"></script>
 </head>
 
+<style>
+    .clearfix:before,
+    .clearfix:after {
+        content: ' ';
+        display: table;
+    }
+
+    .clearfix:after {
+        clear: both;
+    }
+
+    body {
+        margin: 0;
+    }
+
+    header {
+        text-align: center;
+        padding: 12px;
+        margin-bottom: 32px;
+        background-color: #1976d2;
+        box-shadow: 0 0 5px #555;
+    }
+
+    header h1 {
+        margin: 0;
+        padding: 0;
+        color: white;
+        font-size: 1.8em;
+        font-weight: normal;
+    }
+
+    main {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 0 40px;
+    }
+
+    .main-panel {
+        width: 70%;
+        float: left;
+    }
+
+    .side-panel {
+        margin-left: 70%;
+    }
+
+    #nodes {
+        list-style-type: none;
+    }
+
+    #nodes li {
+        margin-bottom: 12px;
+
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+    }
+
+    #nodes li .dot {
+        height: 25px;
+        width: 25px;
+        background-color: #bbb;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 8px;
+    }
+
+    #nodes li .alive {
+        margin-left: 8px;
+        display: inline-block;
+        background-color: #4dd64d;
+        border-radius: 4px;
+        color: white;
+        padding: 2px 8px;
+    }
+
+    #nodes li .down {
+        margin-left: 8px;
+        display: inline-block;
+        background-color: #e54e4e;
+        border-radius: 4px;
+        color: white;
+        padding: 2px 8px;
+    }
+
+</style>
+
 <body>
-<div id="canvas-holder" style="width:70%">
-    <canvas id="chart-area"></canvas>
-</div>
+<header>
+    <h1>Cluster Dashboard</h1>
+</header>
+<main>
+    <div class="clearfix">
+        <div id="canvas-holder" class="main-panel">
+            <canvas id="chart-area"></canvas>
+        </div>
+        <div class="side-panel">
+            <ul id="nodes"></ul>
+        </div>
+    </div>
+</main>
 <script>
     let colorHSV2RGB = function (h, s, v) {
         let r, g, b, i, f, p, q, t;
@@ -64,11 +161,12 @@
         type: 'doughnut',
         data: {},
         options: {
-            cutoutPercentage: 80,
+            cutoutPercentage: 85,
             animation: {
                 animateRotate: false,
             },
             responsive: true,
+            aspectRatio: 1.2,
             legend: {
                 display: false,
             },
@@ -103,6 +201,9 @@
 
                     let virtualNodes = [];
                     let nodeIdx = 0;
+
+                    let nodesHTML = '';
+
                     for (let nodeId in data.nodes) {
                         let node = data.nodes[nodeId];
                         node.color = colorHSV2RGB((0.15 * nodeIdx++) % 1.0, 0.6, 0.96);
@@ -112,7 +213,15 @@
                                 node: node,
                             });
                         });
+
+                        let status = node.alive ? "alive" : "down";
+                        nodesHTML += '<li>' +
+                            `<span class="dot" style="background-color: ${node.color}"></span>` +
+                            `<span>Node ${node.id}</span> ` +
+                            `<span class="${status}">${status}</span>` +
+                            '</li>';
                     }
+                    document.getElementById("nodes").innerHTML = nodesHTML;
 
                     virtualNodes.sort(function (a, b) {
                         return a.vNode - b.vNode;
@@ -124,7 +233,7 @@
                         }
                         let next = virtualNodes[(index + 1) % virtualNodes.length];
                         if (next.node.id === item.node.id) {
-                            removedCount ++
+                            removedCount++
                             return false;
                         }
                         return true;
