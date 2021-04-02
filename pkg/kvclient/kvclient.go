@@ -3,6 +3,7 @@ package kvclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/heyuhang0/DSCProject/pkg/consistent"
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
@@ -15,15 +16,14 @@ import (
 )
 
 type SeedNodeConfig struct {
-	ID      int
+	ID      uint64
 	Address string
 }
 
 type ClientConfig struct {
-	NumVirtualNodes int
-	NodeTimeoutMs   int
-	Retry           int
-	SeedNodes       []*SeedNodeConfig
+	NodeTimeoutMs int
+	Retry         int
+	SeedNodes     []*SeedNodeConfig
 }
 
 func NewClientConfigFromFile(configPath string) (*ClientConfig, error) {
@@ -44,69 +44,91 @@ func NewClientConfigFromFile(configPath string) (*ClientConfig, error) {
 	return &config, nil
 }
 
-type node struct {
-	mu      sync.RWMutex
-	address string
-	client  pb.KeyValueStoreClient
-}
-
-func (s *node) getClient(ctx context.Context) (pb.KeyValueStoreClient, error) {
-	s.mu.RLock()
-	if s.client != nil {
-		defer s.mu.RUnlock()
-		return s.client, nil
-	}
-	s.mu.RUnlock()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// check again, since other machine may have created it
-	// when we acquire write lock
-	if s.client != nil {
-		return s.client, nil
-	}
-	conn, err := grpc.DialContext(ctx, s.address, grpc.WithInsecure())
-	if err != nil {
-		return nil, err
-	}
-	s.client = pb.NewKeyValueStoreClient(conn)
-	return s.client, nil
-}
-
 type KeyValueStoreClient struct {
+	mu sync.RWMutex
+
 	nodeTimeout time.Duration
-	nodes       map[int]*node
-	consistent  *consistent.Consistent
+	retry       int
+
+	seeds      []uint64
+	addresses  map[uint64]string
+	connPool   map[string]pb.KeyValueStoreClient
+	consistent *consistent.Consistent
 }
 
 func NewKeyValueStoreClient(config *ClientConfig) *KeyValueStoreClient {
-	// TODO initialize hash ring from seed node once implemented
-	hashRing := consistent.NewConsistent(config.NumVirtualNodes)
-	nodes := make(map[int]*node)
+	seeds := make([]uint64, len(config.SeedNodes))
+	addresses := make(map[uint64]string)
 
-	for _, seedNode := range config.SeedNodes {
-		hashRing.AddNode(uint64(seedNode.ID))
-		nodes[seedNode.ID] = &node{
-			address: seedNode.Address,
-		}
+	for i, seedNode := range config.SeedNodes {
+		seeds[i] = seedNode.ID
+		addresses[seedNode.ID] = seedNode.Address
 	}
 
-	return &KeyValueStoreClient{
+	client := &KeyValueStoreClient{
 		nodeTimeout: time.Duration(config.NodeTimeoutMs) * time.Millisecond,
-		nodes:       nodes,
-		consistent:  hashRing,
+		retry:       config.Retry,
+		seeds:       seeds,
+		addresses:   addresses,
+		connPool:    make(map[string]pb.KeyValueStoreClient),
 	}
+
+	// update consistent hashing in the background
+	go func() {
+		for {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+			_ = client.updateRing(ctx)
+			<-ctx.Done()
+			cancel()
+		}
+	}()
+
+	return client
 }
 
-func (k *KeyValueStoreClient) retryForEveryNode(ctx context.Context, key []byte, do func(ctx context.Context, client pb.KeyValueStoreClient) error) error {
-	preferenceList := k.consistent.GetNodes(key, len(k.nodes))
+func (k *KeyValueStoreClient) getClient(nodeID uint64) (pb.KeyValueStoreClient, error) {
+	k.mu.RLock()
 
+	// Get address
+	address, ok := k.addresses[nodeID]
+	if !ok {
+		k.mu.RUnlock()
+		return nil, fmt.Errorf("NodeManager: nodeID {%v} not found", nodeID)
+	}
+
+	// Reuse the existing connection
+	if client, ok := k.connPool[address]; ok {
+		k.mu.RUnlock()
+		return client, nil
+	}
+
+	// Create a new connection
+	k.mu.RUnlock()
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if client, ok := k.connPool[address]; ok {
+		return client, nil
+	}
+
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		return nil, err
+	}
+
+	client := pb.NewKeyValueStoreClient(conn)
+	k.connPool[address] = client
+	return client, nil
+}
+
+func (k *KeyValueStoreClient) retryForEveryNode(ctx context.Context, nodes []uint64, do func(ctx context.Context, client pb.KeyValueStoreClient) error) error {
+	if len(nodes) == 0 {
+		return errors.New("no nodes available")
+	}
 	errorMessages := make([]string, 0)
-	for _, nodeID := range preferenceList {
-		nodeCtx, cancel := context.WithTimeout(ctx, k.nodeTimeout)
-
-		client, err := k.nodes[int(nodeID)].getClient(nodeCtx)
+	for _, nodeID := range nodes {
+		client, err := k.getClient(nodeID)
 		if err != nil {
-			cancel()
 			errorMessages = append(errorMessages, err.Error())
 			if ctx.Err() != nil {
 				break
@@ -114,6 +136,7 @@ func (k *KeyValueStoreClient) retryForEveryNode(ctx context.Context, key []byte,
 			continue
 		}
 
+		nodeCtx, cancel := context.WithTimeout(ctx, k.nodeTimeout)
 		err = do(nodeCtx, client)
 		cancel()
 		if err == nil {
@@ -128,8 +151,59 @@ func (k *KeyValueStoreClient) retryForEveryNode(ctx context.Context, key []byte,
 	return fmt.Errorf("multiple errors encountered: %v", strings.Join(errorMessages, "; "))
 }
 
+func (k *KeyValueStoreClient) updateRing(ctx context.Context) error {
+	seedIndex := -1
+	var resp *pb.GetRingResponse
+
+	err := k.retryForEveryNode(ctx, k.seeds, func(ctx context.Context, client pb.KeyValueStoreClient) (err error) {
+		seedIndex += 1
+		resp, err = client.GetRing(ctx, &pb.GetRingRequest{})
+		return
+	})
+	if err != nil {
+		return err
+	}
+
+	// swap seeds order, so that next time can get from the alive seed server directly
+	if seedIndex != 0 {
+		k.seeds[0], k.seeds[seedIndex] = k.seeds[seedIndex], k.seeds[0]
+	}
+
+	// update consistent hashing
+	k.mu.Lock()
+	if k.consistent == nil {
+		k.consistent = consistent.NewConsistent(int(resp.NumVNodes))
+	}
+	for _, nodeInfo := range resp.Nodes {
+		k.addresses[nodeInfo.Id] = nodeInfo.ExternalAddress
+		if nodeInfo.Alive {
+			k.consistent.AddNode(nodeInfo.Id)
+		} else {
+			k.consistent.RemoveNode(nodeInfo.Id)
+		}
+	}
+	k.mu.Unlock()
+
+	return err
+}
+
+func (k *KeyValueStoreClient) retryForKey(ctx context.Context, key []byte, do func(ctx context.Context, client pb.KeyValueStoreClient) error) error {
+	k.mu.RLock()
+	if k.consistent == nil {
+		k.mu.RUnlock()
+		err := k.updateRing(ctx)
+		if err != nil {
+			return err
+		}
+		k.mu.RLock()
+	}
+	preferenceList := k.consistent.GetNodes(key, k.retry)
+	k.mu.RUnlock()
+	return k.retryForEveryNode(ctx, preferenceList, do)
+}
+
 func (k *KeyValueStoreClient) Put(ctx context.Context, in *pb.PutRequest, opts ...grpc.CallOption) (response *pb.PutResponse, err error) {
-	err = k.retryForEveryNode(ctx, in.Key, func(nodeCtx context.Context, client pb.KeyValueStoreClient) error {
+	err = k.retryForKey(ctx, in.Key, func(nodeCtx context.Context, client pb.KeyValueStoreClient) error {
 		response, err = client.Put(nodeCtx, in, opts...)
 		return err
 	})
@@ -137,7 +211,7 @@ func (k *KeyValueStoreClient) Put(ctx context.Context, in *pb.PutRequest, opts .
 }
 
 func (k *KeyValueStoreClient) Get(ctx context.Context, in *pb.GetRequest, opts ...grpc.CallOption) (response *pb.GetResponse, err error) {
-	err = k.retryForEveryNode(ctx, in.Key, func(nodeCtx context.Context, client pb.KeyValueStoreClient) error {
+	err = k.retryForKey(ctx, in.Key, func(nodeCtx context.Context, client pb.KeyValueStoreClient) error {
 		response, err = client.Get(nodeCtx, in, opts...)
 		return err
 	})
