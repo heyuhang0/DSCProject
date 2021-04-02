@@ -7,63 +7,156 @@
 </head>
 
 <body>
-<div id="canvas-holder" style="width:40%">
+<div id="canvas-holder" style="width:70%">
     <canvas id="chart-area"></canvas>
 </div>
-<button id="randomizeData">Randomize Data</button>
 <script>
-    var randomScalingFactor = function () {
-        return Math.round(Math.random() * 100);
-    };
+    let colorHSV2RGB = function (h, s, v) {
+        let r, g, b, i, f, p, q, t;
+        i = Math.floor(h * 6);
+        f = h * 6 - i;
+        p = v * (1 - s);
+        q = v * (1 - f * s);
+        t = v * (1 - (1 - f) * s);
+        switch (i % 6) {
+            case 0:
+                r = v;
+                g = t;
+                b = p;
+                break;
+            case 1:
+                r = q;
+                g = v;
+                b = p;
+                break;
+            case 2:
+                r = p;
+                g = v;
+                b = t;
+                break;
+            case 3:
+                r = p;
+                g = q;
+                b = v;
+                break;
+            case 4:
+                r = t;
+                g = p;
+                b = v;
+                break;
+            case 5:
+                r = v;
+                g = p;
+                b = q;
+                break;
+            default:
+                break;
+        }
+        let color = {
+            r: Math.round(r * 255),
+            g: Math.round(g * 255),
+            b: Math.round(b * 255)
+        };
+        return "rgb(" + color.r + "," + color.g + "," + color.b + ")";
+    }
 
-    var config = {
+    let config = {
         type: 'doughnut',
-        data: {
-            datasets: [{
-                data: [
-                    randomScalingFactor(),
-                    randomScalingFactor(),
-                    randomScalingFactor(),
-                    randomScalingFactor(),
-                    randomScalingFactor(),
-                ],
-                backgroundColor: [
-                    "rgb(255, 99, 132)",
-                    "rgb(255, 159, 64)",
-                    "rgb(255, 205, 86)",
-                    "rgb(75, 192, 192)",
-                    "rgb(54, 162, 235)",
-                ],
-                label: 'Dataset 1'
-            }],
-            labels: [
-                'Red',
-                'Orange',
-                'Yellow',
-                'Green',
-                'Blue'
-            ]
-        },
+        data: {},
         options: {
             cutoutPercentage: 80,
-            responsive: true
+            animation: {
+                animateRotate: false,
+            },
+            responsive: true,
+            legend: {
+                display: false,
+            },
+            tooltips: {
+                callbacks: {
+                    label: function (tooltipItem, data) {
+                        return 'Node ' + data.labels[tooltipItem.index];
+                    }
+                }
+            }
         }
     };
 
     window.onload = function () {
-        var ctx = document.getElementById('chart-area').getContext('2d');
+        let ctx = document.getElementById('chart-area').getContext('2d');
         window.myPie = new Chart(ctx, config);
+
+        let lastResponse = {};
+        lastResponse.text = null;
+
+        setInterval(function () {
+            let xhr = new XMLHttpRequest();
+
+            xhr.onreadystatechange = function () {
+                if (this.readyState !== 4) return;
+                if (this.status === 200) {
+                    if (this.responseText === lastResponse.text) {
+                        return;
+                    }
+                    let data = JSON.parse(this.responseText);
+                    lastResponse.text = this.responseText;
+
+                    let virtualNodes = [];
+                    let nodeIdx = 0;
+                    for (let nodeId in data.nodes) {
+                        let node = data.nodes[nodeId];
+                        node.color = colorHSV2RGB((0.15 * nodeIdx++) % 1.0, 0.6, 0.96);
+                        node.virtualNodes.forEach(function (vNode) {
+                            virtualNodes.push({
+                                vNode: vNode / Math.pow(2, 64) * 360,
+                                node: node,
+                            });
+                        });
+                    }
+
+                    virtualNodes.sort(function (a, b) {
+                        return a.vNode - b.vNode;
+                    });
+                    let removedCount = 0;
+                    virtualNodes = virtualNodes.filter(function (item, index) {
+                        if (removedCount === virtualNodes.length - 1) {
+                            return true;
+                        }
+                        let next = virtualNodes[(index + 1) % virtualNodes.length];
+                        if (next.node.id === item.node.id) {
+                            removedCount ++
+                            return false;
+                        }
+                        return true;
+                    });
+
+                    let graphData = {
+                        datasets: [{
+                            data: [],
+                            backgroundColor: [],
+                            borderWidth: 0,
+                        }],
+                        labels: [],
+                    };
+                    virtualNodes.forEach(function (item, index) {
+                        if (index === 0) {
+                            let prev = virtualNodes[virtualNodes.length - 1];
+                            graphData.datasets[0].data.push((item.vNode + 360 - prev.vNode));
+                        } else {
+                            let prev = virtualNodes[index - 1];
+                            graphData.datasets[0].data.push(item.vNode - prev.vNode);
+                        }
+                        graphData.datasets[0].backgroundColor.push(item.node.color);
+                        graphData.labels.push(item.node.id);
+                    });
+                    config.data = graphData;
+                    window.myPie.update();
+                }
+            };
+            xhr.open('GET', '/api/dashboard', true);
+            xhr.send();
+        }, 1000);
     };
-
-    document.getElementById('randomizeData').addEventListener('click', function () {
-        config.data.datasets.forEach(function (dataset) {
-            dataset.data = dataset.data.map(function () {
-                return randomScalingFactor();
-            });
-        });
-
-        window.myPie.update();
-    });
 </script>
 </body>
 
