@@ -106,6 +106,7 @@ func (m *Manager) UpdateNodeWithExpire(node *NodeInfo, expire time.Duration) {
 		}
 		m.nodes[nodeID].Alive = false
 		m.consistent.RemoveNode(nodeID)
+		log.Printf("Node %v has been removed from consistent hash ring", node.ID)
 	})
 }
 

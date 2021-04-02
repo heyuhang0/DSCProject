@@ -9,34 +9,23 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"log"
-	"strconv"
 	"time"
 )
 
 type GetRepMessage struct {
-	id   int
+	id   uint64
 	err  error
 	data *pb.VersionedData
 }
 
 type PutRepMessage struct {
-	id  int
+	id  uint64
 	err error
-}
-
-// contains
-func contains(s []int, e int) bool {
-	for _, a := range s {
-		if a == e {
-			return true
-		}
-	}
-	return false
 }
 
 // check whether all byte array in an array are the same
 func allSame(data []*pb.VersionedData) bool {
-	for i, _ := range data {
+	for i := range data {
 		if bytes.Compare(data[0].Object, data[i].Object) != 0 {
 			return false
 		}
@@ -81,16 +70,7 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 	log.Printf("Received GET REQUEST from clients for key {%v}\n", keyString)
 
 	// get preference list for the key
-	preferenceList, errGetPref := s.GetPreferenceList(req.Key)
-	if errGetPref != nil {
-		return nil, errGetPref
-	}
-
-	// check if myself is in preference list
-	if !contains(preferenceList, s.id) {
-		// need to forward the message to the one in preference list, haven't implemented
-		log.Printf("need to forward the get request to other server, I am not in preference list")
-	}
+	preferenceList := s.GetPreferenceList(req.Key)
 
 	// context to get replicas
 	clientDeadline := time.Now().Add(s.timeout)
@@ -105,27 +85,24 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 			Vectorclock: vc.ToDTO(s.vectorClock),
 		}
 		// send getRep request to servers with id peerServerId
-		go func(peerServerId int, notifyChan chan GetRepMessage) {
+		go func(peerServerId uint64, notifyChan chan GetRepMessage) {
 			var dataRep *pb.GetRepResponse
 			var err error
-			// myself
-			if peerServerId == s.id {
-				dataRep, err = s.GetRep(ctxRep, &reqRep)
-			} else { // other servers
-				peerServerInterface, exist := s.otherServerInstance.Load(peerServerId)
-				if !exist {
-					panic("peer id is not stored in server " + strconv.Itoa(s.id))
-				}
-				peerServer, ok := peerServerInterface.(pb.KeyValueStoreInternalClient)
-				if !ok {
-					panic("peer server is not the correct type " + strconv.Itoa(s.id))
-				}
-				dataRep, err = peerServer.GetRep(ctxRep, &reqRep)
 
-				// need to merge vector clock
-				if err == nil && dataRep != nil {
-					// if no data in the node, then skip
-					s.vectorClock.MergeClock(vc.FromDTO(dataRep.Vectorclock).Vclock)
+			if peerServerId == s.id {
+				// myself
+				dataRep, err = s.GetRep(ctxRep, &reqRep)
+			} else {
+				// other servers
+				var peerServer pb.KeyValueStoreInternalClient
+
+				peerServer, err = s.nodes.GetInternalClient(peerServerId)
+				if err == nil {
+					dataRep, err = peerServer.GetRep(ctxRep, &reqRep)
+					// need to merge vector clock
+					if err == nil && dataRep != nil {
+						s.vectorClock.MergeClock(vc.FromDTO(dataRep.Vectorclock).Vclock)
+					}
 				}
 			}
 			// notify main routine
@@ -195,15 +172,7 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 	log.Printf("Received PUT request from clients: key {%v}, val{%v}", keyString, valString)
 
 	// get preference list for the key
-	preferenceList, errGetPref := s.GetPreferenceList(req.Key)
-	if errGetPref != nil {
-		return nil, errGetPref
-	}
-	// check if myself is in preference list
-	if !contains(preferenceList, s.id) {
-		// need to forward the message to the one in preference list, haven't implemented
-		log.Printf("need to forward the get request to other server, I am not in preference list")
-	}
+	preferenceList := s.GetPreferenceList(req.Key)
 
 	// need numWrite to finish the operation
 	notifyChan := make(chan PutRepMessage, s.numReplica)
@@ -226,26 +195,25 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 	for _, peerServerId := range preferenceList {
 		var err error
 		// send putRep request to servers with id peerServerId
-		go func(peerServerId int, notifyChan chan PutRepMessage) {
-			// myself
-			if peerServerId == s.id {
-				_, err = s.PutRep(ctxRep, reqRep)
-			} else { // other server
-				peerServerInterface, exist := s.otherServerInstance.Load(peerServerId)
-				if !exist {
-					panic("peer id is not stored in server " + strconv.Itoa(s.id))
-				}
-				peerServer, ok := peerServerInterface.(pb.KeyValueStoreInternalClient)
-				if !ok {
-					panic("peer server is not the correct type " + strconv.Itoa(s.id))
-				}
-				var resp *pb.PutRepResponse
-				resp, err = peerServer.PutRep(ctxRep, reqRep)
 
-				// need to merge vector clock
-				if err == nil && resp != nil {
-					// if no data in the node, then skip
-					s.vectorClock.MergeClock(vc.FromDTO(resp.Vectorclock).Vclock)
+		go func(peerServerId uint64, notifyChan chan PutRepMessage) {
+			if peerServerId == s.id {
+				// myself
+				_, err = s.PutRep(ctxRep, reqRep)
+			} else {
+				// other servers
+				var peerServer pb.KeyValueStoreInternalClient
+				var resp *pb.PutRepResponse
+
+				peerServer, err = s.nodes.GetInternalClient(peerServerId)
+				if err == nil {
+					resp, err = peerServer.PutRep(ctxRep, reqRep)
+
+					// need to merge vector clock
+					if err == nil && resp != nil {
+						// if no data in the node, then skip
+						s.vectorClock.MergeClock(vc.FromDTO(resp.Vectorclock).Vclock)
+					}
 				}
 			}
 			notifyChan <- PutRepMessage{peerServerId, err}
