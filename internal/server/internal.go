@@ -17,7 +17,9 @@ func (s *server) GetRep(ctx context.Context, req *pb.GetRepRequest) (*pb.GetRepR
 	log.Printf("Getting replica for key: {%v} from local db\n", string(req.Key))
 	s.vectorClock.MergeClock(vc.FromDTO(req.Vectorclock).Vclock)
 
-	dataBytes, err := s.db.Get(req.Key, nil)
+	// add prefix to key to distinguish from persistent vector clock
+	realKey := append([]byte("data_"), req.Key...)
+	dataBytes, err := s.db.Get(realKey, nil)
 	if err != nil {
 		if err == leveldb.ErrNotFound || err == dberrors.ErrNotFound { // key not found
 			return nil, status.Error(codes.NotFound, "LEVELDB KEY NOT FOUND")
@@ -44,7 +46,9 @@ func (s *server) PutRep(ctx context.Context, req *pb.PutRepRequest) (*pb.PutRepR
 		return nil, err
 	}
 
-	err = s.db.Put(req.Key, dataBytes, nil)
+	// add prefix to key to distinguish from persistent vector clock
+	realKey := append([]byte("data_"), req.Key...)
+	err = s.db.Put(realKey, dataBytes, nil)
 	s.vectorClock.Advance()
 	return &pb.PutRepResponse{Vectorclock: vc.ToDTO(s.vectorClock)}, err
 }

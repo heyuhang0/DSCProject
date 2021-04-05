@@ -73,7 +73,7 @@ func main() {
 		log.Fatalf("Server index %v out of range [1, %v]", *serverIdx, numServer)
 	}
 
-	localServer := servers[*serverIdx - 1]
+	localServer := servers[*serverIdx-1]
 	nodeId := localServer.Id
 
 	// creating server
@@ -122,6 +122,14 @@ func main() {
 
 	sInternal := grpc.NewServer()
 	pb.RegisterKeyValueStoreInternalServer(sInternal, newServer)
+
+	// start store vectorclock every 1s
+	go func() {
+		for {
+			newServer.StoreVectorClock()
+			time.Sleep(time.Second)
+		}
+	}()
 
 	// start serving
 	go func() {
