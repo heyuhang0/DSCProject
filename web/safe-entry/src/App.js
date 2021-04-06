@@ -1,42 +1,38 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, Form, Input, Button, Switch, List } from 'antd';
 import { ArrowLeftOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons';
+import axios from 'axios';
 import './App.css';
 
 
 function LocationList({ setLocation }) {
-  // setLastLocation('SUTD Building 1');
+  const [history, setHistory] = useState([]);
 
-  const dummyHistory = [
-    {
-      location: 'SUTD Block 55',
-      action: 'check-in'
-    },
-    {
-      location: 'SUTD Block 55',
-      action: 'check-out'
-    },
-    {
-      location: 'SUTD Building 2',
-      action: 'check-in'
-    },
-    {
-      location: 'SUTD Building 2',
-      action: 'check-out'
-    },
-    {
-      location: 'SUTD Building 1',
-      action: 'check-in'
+  const refreshHistory = () => {
+    let saved = localStorage.getItem('particulars');
+    if (saved !== null) {
+      saved = JSON.parse(saved);
+      axios.post("/api/history", {
+        "IC": saved.ic,
+        "Phone": saved.phone,
+      }).then(res => {
+        setHistory(res.data.map(record => {
+          return {
+            location: record.Location,
+            action: record.CheckIn ? 'check-in' : 'check-out'
+          };
+        }))
+      });
     }
-  ];
+  }
 
-  const [history, setHistory] = useState(dummyHistory);
+  useEffect(refreshHistory, []);
 
   // find the last check in location that has not been checked out
   let checkInRecords = history.filter(record => record.action === 'check-in');
   let checkOutRecords = history.filter(record => record.action !== 'check-in');
   checkOutRecords.forEach(outRecord => {
-    for (let i = 0; i < checkInRecords.length; i ++) {
+    for (let i = 0; i < checkInRecords.length; i++) {
       if (checkInRecords[i].location === outRecord.location) {
         checkInRecords = checkInRecords.filter((_, index) => index !== i);
         break;
@@ -64,7 +60,20 @@ function LocationList({ setLocation }) {
         {lastLocation !== null ?
           <Card title='Last check-in' style={{ width: 300, margin: '40px auto' }}>
             <h3>{lastLocation}</h3>
-            <Button>Check out</Button>
+            <Button onClick={() => {
+              let saved = localStorage.getItem('particulars');
+              if (saved !== null) {
+                saved = JSON.parse(saved);
+                axios.post("/api/checkin", {
+                  "IC": saved.ic,
+                  "Phone": saved.phone,
+                  "Location": lastLocation,
+                  "CheckIn": false,
+                }).then(refreshHistory);
+              }
+            }}>
+              Check out
+            </Button>
           </Card> : null
         }
       </div>
@@ -92,8 +101,8 @@ function LocationList({ setLocation }) {
             <List.Item>
               <span>
                 {record.action === 'check-in' ?
-                  <ImportOutlined style={{color: "green"}} /> :
-                  <ExportOutlined style={{color: "red"}} />}
+                  <ImportOutlined style={{ color: "green" }} /> :
+                  <ExportOutlined style={{ color: "red" }} />}
               </span>
               <span>{record.location}</span>
             </List.Item>
@@ -105,12 +114,34 @@ function LocationList({ setLocation }) {
 }
 
 
-function CheckInPage({ location }) {
+function CheckInPage({ location, afterSubmit }) {
   let action = "check-in";
 
   let onFinish = (form) => {
-    console.log(action, form);
+    if (form.remember) {
+      localStorage.setItem("particulars", JSON.stringify(form));
+    } else {
+      localStorage.removeItem("particulars");
+    }
+
+    axios.post("/api/checkin", {
+      "IC": form.ic,
+      "Phone": form.phone,
+      "Location": location,
+      "CheckIn": action === "check-in",
+    }).then(() => {
+      afterSubmit();
+    });
   };
+
+  let saved = localStorage.getItem('particulars');
+  let savedIC = null;
+  let savedPhone = null;
+  if (saved !== null) {
+    saved = JSON.parse(saved);
+    savedIC = saved.ic;
+    savedPhone = saved.phone;
+  }
 
   return (
     <div>
@@ -123,13 +154,15 @@ function CheckInPage({ location }) {
           <Form.Item
             name="ic"
             rules={[{ required: true, message: 'Please input your NRIC/FIN' }]}
+            initialValue={savedIC}
           >
             <Input placeholder="NRIC/FIN:" />
           </Form.Item>
 
           <Form.Item
-            name="mobile"
+            name="phone"
             rules={[{ required: true, message: 'Please input your mobile number' }]}
+            initialValue={savedPhone}
           >
             <Input placeholder="Mobile Number:" />
           </Form.Item>
@@ -195,7 +228,7 @@ function App() {
       <div>
         {location === null ?
           <LocationList setLocation={setLocation} /> :
-          <CheckInPage location={location} />
+          <CheckInPage location={location} afterSubmit={() => setLocation(null)} />
         }
       </div>
 
