@@ -72,7 +72,10 @@ func (selfVectorClock *VectorClock) Advance() {
 
 func (selfVectorClock *VectorClock) GetVectorClock() map[int]int {
 	selfVectorClock.mu.RLock()
-	c := selfVectorClock.Vclock
+	c := make(map[int]int)
+	for k, v := range selfVectorClock.Vclock {
+		c[k] = v
+	}
 	selfVectorClock.mu.RUnlock()
 	return c
 }
