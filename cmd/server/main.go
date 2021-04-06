@@ -97,6 +97,11 @@ func main() {
 			Version:         time.Now().UnixNano(),
 		})
 	}
+	ringVisualAddr := fmt.Sprintf("127.0.0.1:%d", 8000 + *serverIdx)
+	go func() {
+		log.Fatal(nodeManager.ServeDashboard(ringVisualAddr))
+	}()
+	log.Printf("View consistent hashing ring on http://%v/", ringVisualAddr)
 
 	// create server instance
 	newServer := server.NewServer(nodeId, numReplica, numRead, numVNodes, numWrite, timeout, nodeManager, db)

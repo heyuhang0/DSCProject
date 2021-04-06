@@ -1,0 +1,289 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cluster Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@2.8.0"></script>
+</head>
+
+<style>
+    .clearfix:before,
+    .clearfix:after {
+        content: ' ';
+        display: table;
+    }
+
+    .clearfix:after {
+        clear: both;
+    }
+
+    body {
+        margin: 0;
+    }
+
+    header {
+        text-align: center;
+        padding: 12px;
+        margin-bottom: 32px;
+        background-color: #1976d2;
+        box-shadow: 0 0 5px #555;
+    }
+
+    header h1 {
+        margin: 0;
+        padding: 0;
+        color: white;
+        font-size: 1.8em;
+        font-weight: normal;
+    }
+
+    main {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 0 40px;
+    }
+
+    .main-panel {
+        width: 70%;
+        float: left;
+    }
+
+    .side-panel {
+        margin-left: 70%;
+    }
+
+    @media only screen and (max-width: 810px) {
+        main {
+            padding: 0 20px;
+        }
+
+        .main-panel {
+            width: 100%;
+            float: none;
+            margin-bottom: 40px;
+        }
+
+        .side-panel {
+            margin-left: 0;
+        }
+    }
+
+    #nodes {
+        list-style-type: none;
+    }
+
+    #nodes li {
+        margin-bottom: 12px;
+
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+    }
+
+    #nodes li .dot {
+        height: 25px;
+        width: 25px;
+        background-color: #bbb;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 8px;
+    }
+
+    #nodes li .alive {
+        margin-left: 8px;
+        display: inline-block;
+        background-color: #4dd64d;
+        border-radius: 4px;
+        color: white;
+        padding: 2px 8px;
+    }
+
+    #nodes li .down {
+        margin-left: 8px;
+        display: inline-block;
+        background-color: #e54e4e;
+        border-radius: 4px;
+        color: white;
+        padding: 2px 8px;
+    }
+
+</style>
+
+<body>
+<header>
+    <h1>Cluster Dashboard</h1>
+</header>
+<main>
+    <div class="clearfix">
+        <div id="canvas-holder" class="main-panel">
+            <canvas id="chart-area"></canvas>
+        </div>
+        <div class="side-panel">
+            <ul id="nodes"></ul>
+        </div>
+    </div>
+</main>
+<script>
+    let colorHSV2RGB = function (h, s, v) {
+        let r, g, b, i, f, p, q, t;
+        i = Math.floor(h * 6);
+        f = h * 6 - i;
+        p = v * (1 - s);
+        q = v * (1 - f * s);
+        t = v * (1 - (1 - f) * s);
+        switch (i % 6) {
+            case 0:
+                r = v;
+                g = t;
+                b = p;
+                break;
+            case 1:
+                r = q;
+                g = v;
+                b = p;
+                break;
+            case 2:
+                r = p;
+                g = v;
+                b = t;
+                break;
+            case 3:
+                r = p;
+                g = q;
+                b = v;
+                break;
+            case 4:
+                r = t;
+                g = p;
+                b = v;
+                break;
+            case 5:
+                r = v;
+                g = p;
+                b = q;
+                break;
+            default:
+                break;
+        }
+        let color = {
+            r: Math.round(r * 255),
+            g: Math.round(g * 255),
+            b: Math.round(b * 255)
+        };
+        return "rgb(" + color.r + "," + color.g + "," + color.b + ")";
+    }
+
+    let config = {
+        type: 'doughnut',
+        data: {},
+        options: {
+            cutoutPercentage: 85,
+            animation: {
+                animateRotate: false,
+            },
+            responsive: true,
+            aspectRatio: 1.2,
+            legend: {
+                display: false,
+            },
+            tooltips: {
+                callbacks: {
+                    label: function (tooltipItem, data) {
+                        return 'Node ' + data.labels[tooltipItem.index];
+                    }
+                }
+            }
+        }
+    };
+
+    window.onload = function () {
+        let ctx = document.getElementById('chart-area').getContext('2d');
+        window.myPie = new Chart(ctx, config);
+
+        let lastResponse = {};
+        lastResponse.text = null;
+
+        setInterval(function () {
+            let xhr = new XMLHttpRequest();
+
+            xhr.onreadystatechange = function () {
+                if (this.readyState !== 4) return;
+                if (this.status === 200) {
+                    if (this.responseText === lastResponse.text) {
+                        return;
+                    }
+                    let data = JSON.parse(this.responseText);
+                    lastResponse.text = this.responseText;
+
+                    let virtualNodes = [];
+                    let nodeIdx = 0;
+
+                    let nodesHTML = '';
+
+                    for (let nodeId in data.nodes) {
+                        let node = data.nodes[nodeId];
+                        node.color = colorHSV2RGB((0.15 * nodeIdx++) % 1.0, 0.6, 0.96);
+                        node.virtualNodes.forEach(function (vNode) {
+                            virtualNodes.push({
+                                vNode: vNode / Math.pow(2, 64) * 360,
+                                node: node,
+                            });
+                        });
+
+                        let status = node.alive ? "alive" : "down";
+                        nodesHTML += '<li>' +
+                            `<span class="dot" style="background-color: ${node.color}"></span>` +
+                            `<span>Node ${node.id}</span> ` +
+                            `<span class="${status}">${status}</span>` +
+                            '</li>';
+                    }
+                    document.getElementById("nodes").innerHTML = nodesHTML;
+
+                    virtualNodes.sort(function (a, b) {
+                        return a.vNode - b.vNode;
+                    });
+                    let removedCount = 0;
+                    virtualNodes = virtualNodes.filter(function (item, index) {
+                        if (removedCount === virtualNodes.length - 1) {
+                            return true;
+                        }
+                        let next = virtualNodes[(index + 1) % virtualNodes.length];
+                        if (next.node.id === item.node.id) {
+                            removedCount++
+                            return false;
+                        }
+                        return true;
+                    });
+
+                    let graphData = {
+                        datasets: [{
+                            data: [],
+                            backgroundColor: [],
+                            borderWidth: 0,
+                        }],
+                        labels: [],
+                    };
+                    virtualNodes.forEach(function (item, index) {
+                        if (index === 0) {
+                            let prev = virtualNodes[virtualNodes.length - 1];
+                            graphData.datasets[0].data.push((item.vNode + 360 - prev.vNode));
+                        } else {
+                            let prev = virtualNodes[index - 1];
+                            graphData.datasets[0].data.push(item.vNode - prev.vNode);
+                        }
+                        graphData.datasets[0].backgroundColor.push(item.node.color);
+                        graphData.labels.push(item.node.id);
+                    });
+                    config.data = graphData;
+                    window.myPie.update();
+                }
+            };
+            xhr.open('GET', '/api/dashboard', true);
+            xhr.send();
+        }, 1000);
+    };
+</script>
+</body>
+
+</html>
