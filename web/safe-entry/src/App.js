@@ -1,14 +1,54 @@
 import { useState } from 'react';
 import { Card, Form, Input, Button, Switch, List } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons';
 import './App.css';
 
 
 function LocationList({ setLocation }) {
-  const [lastLocation, setLastLocation] = useState('SUTD Building 1');
   // setLastLocation('SUTD Building 1');
 
-  const data = [
+  const dummyHistory = [
+    {
+      location: 'SUTD Block 55',
+      action: 'check-in'
+    },
+    {
+      location: 'SUTD Block 55',
+      action: 'check-out'
+    },
+    {
+      location: 'SUTD Building 2',
+      action: 'check-in'
+    },
+    {
+      location: 'SUTD Building 2',
+      action: 'check-out'
+    },
+    {
+      location: 'SUTD Building 1',
+      action: 'check-in'
+    }
+  ];
+
+  const [history, setHistory] = useState(dummyHistory);
+
+  // find the last check in location that has not been checked out
+  let checkInRecords = history.filter(record => record.action === 'check-in');
+  let checkOutRecords = history.filter(record => record.action !== 'check-in');
+  checkOutRecords.forEach(outRecord => {
+    for (let i = 0; i < checkInRecords.length; i ++) {
+      if (checkInRecords[i].location === outRecord.location) {
+        checkInRecords = checkInRecords.filter((_, index) => index !== i);
+        break;
+      }
+    }
+  })
+  let lastLocation = null;
+  if (checkInRecords.length > 0) {
+    lastLocation = checkInRecords[checkInRecords.length - 1].location;
+  }
+
+  const locations = [
     'SUTD Building 1',
     'SUTD Building 2',
     'SUTD Building 3',
@@ -23,15 +63,15 @@ function LocationList({ setLocation }) {
       <div>
         {lastLocation !== null ?
           <Card title='Last check-in' style={{ width: 300, margin: '40px auto' }}>
-          <h3>SUTD</h3>
-          <Button>Check out</Button>
-        </Card>: null
+            <h3>{lastLocation}</h3>
+            <Button>Check out</Button>
+          </Card> : null
         }
       </div>
-      
+
       <h3>Where are you visiting?</h3>
       <List
-        dataSource={data}
+        dataSource={locations}
         split={false}
         renderItem={item => (
           <List.Item>
@@ -44,6 +84,22 @@ function LocationList({ setLocation }) {
           </List.Item>
         )}
       />
+
+      <Card title="History" style={{ width: 300, margin: '40px auto' }}>
+        <List
+          dataSource={history}
+          renderItem={record => (
+            <List.Item>
+              <span>
+                {record.action === 'check-in' ?
+                  <ImportOutlined style={{color: "green"}} /> :
+                  <ExportOutlined style={{color: "red"}} />}
+              </span>
+              <span>{record.location}</span>
+            </List.Item>
+          )}
+        />
+      </Card>
     </div>
   );
 }
