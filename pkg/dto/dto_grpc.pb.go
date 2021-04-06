@@ -178,6 +178,7 @@ var KeyValueStore_ServiceDesc = grpc.ServiceDesc{
 type KeyValueStoreInternalClient interface {
 	PutRep(ctx context.Context, in *PutRepRequest, opts ...grpc.CallOption) (*PutRepResponse, error)
 	GetRep(ctx context.Context, in *GetRepRequest, opts ...grpc.CallOption) (*GetRepResponse, error)
+	HeartBeat(ctx context.Context, in *HeartBeatRequest, opts ...grpc.CallOption) (*HeartBeatResponse, error)
 }
 
 type keyValueStoreInternalClient struct {
@@ -206,12 +207,22 @@ func (c *keyValueStoreInternalClient) GetRep(ctx context.Context, in *GetRepRequ
 	return out, nil
 }
 
+func (c *keyValueStoreInternalClient) HeartBeat(ctx context.Context, in *HeartBeatRequest, opts ...grpc.CallOption) (*HeartBeatResponse, error) {
+	out := new(HeartBeatResponse)
+	err := c.cc.Invoke(ctx, "/dto.KeyValueStoreInternal/HeartBeat", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // KeyValueStoreInternalServer is the server API for KeyValueStoreInternal service.
 // All implementations must embed UnimplementedKeyValueStoreInternalServer
 // for forward compatibility
 type KeyValueStoreInternalServer interface {
 	PutRep(context.Context, *PutRepRequest) (*PutRepResponse, error)
 	GetRep(context.Context, *GetRepRequest) (*GetRepResponse, error)
+	HeartBeat(context.Context, *HeartBeatRequest) (*HeartBeatResponse, error)
 	mustEmbedUnimplementedKeyValueStoreInternalServer()
 }
 
@@ -224,6 +235,9 @@ func (UnimplementedKeyValueStoreInternalServer) PutRep(context.Context, *PutRepR
 }
 func (UnimplementedKeyValueStoreInternalServer) GetRep(context.Context, *GetRepRequest) (*GetRepResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRep not implemented")
+}
+func (UnimplementedKeyValueStoreInternalServer) HeartBeat(context.Context, *HeartBeatRequest) (*HeartBeatResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method HeartBeat not implemented")
 }
 func (UnimplementedKeyValueStoreInternalServer) mustEmbedUnimplementedKeyValueStoreInternalServer() {}
 
@@ -274,6 +288,24 @@ func _KeyValueStoreInternal_GetRep_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _KeyValueStoreInternal_HeartBeat_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(HeartBeatRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KeyValueStoreInternalServer).HeartBeat(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/dto.KeyValueStoreInternal/HeartBeat",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KeyValueStoreInternalServer).HeartBeat(ctx, req.(*HeartBeatRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // KeyValueStoreInternal_ServiceDesc is the grpc.ServiceDesc for KeyValueStoreInternal service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -288,6 +320,10 @@ var KeyValueStoreInternal_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetRep",
 			Handler:    _KeyValueStoreInternal_GetRep_Handler,
+		},
+		{
+			MethodName: "HeartBeat",
+			Handler:    _KeyValueStoreInternal_HeartBeat_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

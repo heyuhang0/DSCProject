@@ -32,6 +32,7 @@ type Configuration struct {
 	NumWrite        int
 	NumVirtualNodes int
 	Timeout         int
+	SeedServerIds   []uint64
 	Servers         []*ServerConfig
 }
 
@@ -68,6 +69,7 @@ func main() {
 	servers := config.Servers
 	numVNodes := config.NumVirtualNodes
 	timeout := time.Millisecond * time.Duration(config.Timeout)
+	seedServerIds := config.SeedServerIds
 
 	if *serverIdx <= 0 || *serverIdx > numServer {
 		log.Fatalf("Server index %v out of range [1, %v]", *serverIdx, numServer)
@@ -89,22 +91,26 @@ func main() {
 	// create node manager
 	nodeManager := nodemgr.NewManager(numVNodes)
 	for _, nodeConfig := range servers {
+		alive := false
+		if nodeConfig.Id == nodeId {
+			alive = true
+		}
 		nodeManager.UpdateNode(&nodemgr.NodeInfo{
 			ID:              nodeConfig.Id,
-			Alive:           true,
+			Alive:           alive,
 			InternalAddress: fmt.Sprintf("%v:%v", nodeConfig.IpInternal, nodeConfig.PortInternal),
 			ExternalAddress: fmt.Sprintf("%v:%v", nodeConfig.IpExternal, nodeConfig.PortExternal),
 			Version:         time.Now().UnixNano(),
 		})
 	}
-	ringVisualAddr := fmt.Sprintf("127.0.0.1:%d", 8000 + *serverIdx)
+	ringVisualAddr := fmt.Sprintf("127.0.0.1:%d", 8000+*serverIdx)
 	go func() {
 		log.Fatal(nodeManager.ServeDashboard(ringVisualAddr))
 	}()
 	log.Printf("View consistent hashing ring on http://%v/", ringVisualAddr)
 
 	// create server instance
-	newServer := server.NewServer(nodeId, numReplica, numRead, numWrite, numVNodes, timeout, nodeManager, db)
+	newServer := server.NewServer(nodeId, seedServerIds, numReplica, numRead, numWrite, numVNodes, timeout, nodeManager, db)
 
 	// listen to external and internal ports
 	internalAddress := localServer.IpInternal + ":" + strconv.Itoa(localServer.PortInternal)
@@ -149,6 +155,12 @@ func main() {
 	}()
 	log.Printf("=== Finished setting server %v ===\n", nodeId)
 
+	go func() {
+		for{
+			newServer.SendHeartBeat()
+			time.Sleep(5 * time.Second)
+		}
+	}()
 	// sleep forever
 	select {}
 }
