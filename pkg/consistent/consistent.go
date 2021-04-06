@@ -222,3 +222,16 @@ func (r *Consistent) GetNodes(key interface{}, num int) []uint64 {
 	}
 	return nodes
 }
+
+func (r *Consistent) ExportVirtualNodes() map[uint64][]uint64 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make(map[uint64][]uint64)
+	for nodeID, vNodes := range r.nodeToVNodes {
+		vNodesCopy := make([]uint64, 0, len(vNodes))
+		vNodesCopy = append(vNodesCopy, vNodes...)
+		result[nodeID] = vNodesCopy
+	}
+	return result
+}

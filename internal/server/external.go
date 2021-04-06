@@ -234,7 +234,7 @@ func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 			}
 		case <-ctxRep.Done():
 		}
-		if ctxRep.Err() != nil || successCount >= 3 {
+		if ctxRep.Err() != nil || successCount >= s.numWrite {
 			break
 		}
 	}
