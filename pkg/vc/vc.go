@@ -70,6 +70,13 @@ func (selfVectorClock *VectorClock) Advance() {
 	selfVectorClock.mu.Unlock()
 }
 
+func (selfVectorClock *VectorClock) GetVectorClock() map[int]int {
+	selfVectorClock.mu.RLock()
+	c := selfVectorClock.Vclock
+	selfVectorClock.mu.RUnlock()
+	return c
+}
+
 func ToDTO(selfVectorClock *VectorClock) *pb.VectorClock {
 	result := make(map[int64]int64)
 	selfVectorClock.mu.RLock()

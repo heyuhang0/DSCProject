@@ -57,14 +57,10 @@ func (s *server) GetPreferenceList(key []byte) []uint64 {
 	return s.nodes.GetPreferenceList(key, s.numReplica)
 }
 
-func (s *server) GetVectorClock() map[int]int {
-	return s.vectorClock.Vclock
-}
-
 func (s *server) StoreVectorClock() {
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
-	enc.Encode(s.vectorClock.Vclock)
+	enc.Encode(s.vectorClock.GetVectorClock())
 	vcKey := []byte("vc")
 	_ = s.db.Put(vcKey, buf.Bytes(), nil)
 }
