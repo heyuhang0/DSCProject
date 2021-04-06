@@ -160,6 +160,110 @@ func runCommand(client *kvclient.KeyValueStoreClient, commandStr string) error {
 		log.Printf("PUT SUCCESSFUL: {%v: %v}", key, value)
 		return nil
 
+	case "benchmark":
+		if len(arrCommandStr) != 3 {
+			return errors.New("rps (request per second) requires 2 argument: <num_requests> <num_threads>")
+		}
+		numRequests, _ := strconv.Atoi(arrCommandStr[1])
+		numThreads, _ := strconv.Atoi(arrCommandStr[2])
+
+		// Test PUT
+		results := make(chan []float64, numThreads)
+
+		for i := 0; i < numThreads; i++ {
+			go func(i int) {
+				latency := make([]float64, 0)
+
+				for j := i; j < numRequests; j += numThreads {
+					start := time.Now()
+
+					key := []byte(fmt.Sprintf("test:%v", j))
+					_, err := client.Put(
+						context.Background(),
+						&pb.PutRequest{
+							Key:    key,
+							Object: key,
+						})
+					if err != nil {
+						log.Fatalf("Failed to PUT during benchmark: %v", err)
+					}
+
+					elapsed := time.Now().Sub(start).Seconds()
+					latency = append(latency, elapsed)
+				}
+				results <- latency
+			}(i)
+		}
+
+		start := time.Now()
+
+		// Collect test results
+		latency := make([]float64, 0)
+		for len(latency) < numRequests {
+			latency = append(latency, <-results...)
+		}
+
+		elapsed := time.Now().Sub(start).Seconds()
+
+		requestPerSec := float64(numRequests) / (elapsed)
+		avgLatency, _ := stats.Mean(latency)
+		latency9, _ := stats.Percentile(latency, 90)
+		latency99, _ := stats.Percentile(latency, 99)
+		latency999, _ := stats.Percentile(latency, 99.9)
+
+		fmt.Println("PUT")
+		fmt.Println("  - RPS:          ", requestPerSec, "req/s")
+		fmt.Println("  - Avg Latency:  ", avgLatency*1000, "ms")
+		fmt.Println("  - 90% Latency:  ", latency9*1000, "ms")
+		fmt.Println("  - 99% Latency:  ", latency99*1000, "ms")
+		fmt.Println("  - 99.9% Latency:", latency999*1000, "ms")
+
+		// Test GET
+		for i := 0; i < numThreads; i++ {
+			go func(i int) {
+				latency := make([]float64, 0)
+
+				for j := i; j < numRequests; j += numThreads {
+					start := time.Now()
+
+					key := []byte(fmt.Sprintf("test:%v", j))
+					_, err := client.Get(context.Background(), &pb.GetRequest{Key: key})
+					if err != nil {
+						log.Fatalf("Failed to GET during benchmark: %v", err)
+					}
+
+					elapsed := time.Now().Sub(start).Seconds()
+					latency = append(latency, elapsed)
+				}
+				results <- latency
+			}(i)
+		}
+
+		start = time.Now()
+
+		// Collect test results
+		latency = make([]float64, 0)
+		for len(latency) < numRequests {
+			latency = append(latency, <-results...)
+		}
+
+		elapsed = time.Now().Sub(start).Seconds()
+
+		requestPerSec = float64(numRequests) / (elapsed)
+		avgLatency, _ = stats.Mean(latency)
+		latency9, _ = stats.Percentile(latency, 90)
+		latency99, _ = stats.Percentile(latency, 99)
+		latency999, _ = stats.Percentile(latency, 99.9)
+
+		fmt.Println("Get")
+		fmt.Println("  - RPS:          ", requestPerSec, "req/s")
+		fmt.Println("  - Avg Latency:  ", avgLatency*1000, "ms")
+		fmt.Println("  - 90% Latency:  ", latency9*1000, "ms")
+		fmt.Println("  - 99% Latency:  ", latency99*1000, "ms")
+		fmt.Println("  - 99.9% Latency:", latency999*1000, "ms")
+
+		return nil
+
 	case "rps":
 		if len(arrCommandStr) != 4 {
 			return errors.New("rps (request per second) requires 3 argument: <address> <key> <no_requests>")
