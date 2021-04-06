@@ -110,7 +110,7 @@ func runCommand(client *kvclient.KeyValueStoreClient, commandStr string) error {
 
 	case "put":
 		if len(arrCommandStr) != 3 {
-			return errors.New("put requires 1 arguments: <key> <value>")
+			return errors.New("put requires 2 arguments: <key> <value>")
 		}
 		key, value := arrCommandStr[1], arrCommandStr[2]
 
