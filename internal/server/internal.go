@@ -66,7 +66,7 @@ func (s *server) SendHeartBeat() {
 			if serverId == s.id {
 				return
 			}
-			log.Printf("Trying to send hearbeat to seed server %v", serverId)
+			//log.Printf("Trying to send hearbeat to seed server %v", serverId)
 			heartBeatReq := pb.HeartBeatRequest{
 				Id:              s.id,
 				InternalAddress: nodeInfo.InternalAddress,
@@ -80,7 +80,7 @@ func (s *server) SendHeartBeat() {
 				resp, respErr := seedServer.HeartBeat(ctxHB, &heartBeatReq)
 				// merge history if response is successful
 				if respErr == nil && resp != nil {
-					log.Printf("Received Heartbeat response from seed server %v", serverId)
+					//log.Printf("Received Heartbeat response from seed server %v", serverId)
 					history := resp.Nodes
 					s.nodes.ImportHistory(history)
 				} else {
@@ -94,7 +94,7 @@ func (s *server) SendHeartBeat() {
 }
 
 func (s *server) HeartBeat(ctx context.Context, req *pb.HeartBeatRequest) (*pb.HeartBeatResponse, error) {
-	log.Printf("received heartbeat request from node %v with version %v, replying", req.Id, req.Version)
+	//log.Printf("received heartbeat request from node %v with version %v, replying", req.Id, req.Version)
 	// construct node info
 	nodeInfo := nodemgr.NodeInfo{
 		ID:              req.Id,
