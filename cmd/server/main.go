@@ -47,7 +47,6 @@ func main() {
 	internalAddressNormal := flag.String("internalAddr", "", "internal address of the server")
 	externalAddressNormal := flag.String("externalAddr", "", "external address of the server")
 
-
 	flag.Parse()
 	if flag.NArg() > 0 {
 		flag.Usage()
@@ -88,21 +87,15 @@ func main() {
 	var nodeId uint64
 	var internalAddress string
 	var externalAddress string
-	if !*ifSeedSever{
+	if !*ifSeedSever {
 		nodeId = *nodeIdNormal
 		internalAddress = *internalAddressNormal
 		externalAddress = *externalAddressNormal
-		if nodeId == 0 || internalAddress == "" || externalAddress == ""{
+		if nodeId == 0 || internalAddress == "" || externalAddress == "" {
 			log.Fatal("Please provide correct argument for normal server")
 		}
-		myConfig := ServerConfig{
-			Id: nodeId,
-			IpInternal: internalAddress,
-			IpExternal: externalAddress,
-		}
-		servers = append(servers, &myConfig)
 	}
-	if *ifSeedSever{
+	if *ifSeedSever {
 		localServer := servers[*serverIdx-1]
 		nodeId = localServer.Id
 		internalAddress = localServer.IpInternal + ":" + strconv.Itoa(localServer.PortInternal)
@@ -131,6 +124,15 @@ func main() {
 			Alive:           alive,
 			InternalAddress: fmt.Sprintf("%v:%v", nodeConfig.IpInternal, nodeConfig.PortInternal),
 			ExternalAddress: fmt.Sprintf("%v:%v", nodeConfig.IpExternal, nodeConfig.PortExternal),
+			Version:         time.Now().UnixNano(),
+		})
+	}
+	if !*ifSeedSever {
+		nodeManager.UpdateNode(&nodemgr.NodeInfo{
+			ID:              nodeId,
+			Alive:           true,
+			InternalAddress: internalAddress,
+			ExternalAddress: externalAddress,
 			Version:         time.Now().UnixNano(),
 		})
 	}
@@ -185,7 +187,7 @@ func main() {
 	log.Printf("=== Finished setting server %v ===\n", nodeId)
 
 	go func() {
-		for{
+		for {
 			newServer.SendHeartBeat()
 			time.Sleep(5 * time.Second)
 		}
