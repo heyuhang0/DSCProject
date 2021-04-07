@@ -62,11 +62,11 @@ func (s *server) SendHeartBeat() {
 		panic("my info is not found in my node manager")
 	}
 	for _, serverId := range seedServers {
-		go func(serverId uint64){
+		go func(serverId uint64) {
 			if serverId == s.id {
 				return
 			}
-			log.Printf("Tring to send hearbeat to seed server %v", serverId)
+			log.Printf("Trying to send hearbeat to seed server %v", serverId)
 			heartBeatReq := pb.HeartBeatRequest{
 				Id:              s.id,
 				InternalAddress: nodeInfo.InternalAddress,
@@ -83,10 +83,10 @@ func (s *server) SendHeartBeat() {
 					log.Printf("Received Heartbeat response from seed server %v", serverId)
 					history := resp.Nodes
 					s.nodes.ImportHistory(history)
-				}else{
+				} else {
 					log.Printf("Seed server %v is not contectable", serverId)
 				}
-			}else{
+			} else {
 				log.Printf("Seed server %v is not contectable", serverId)
 			}
 		}(serverId)
