@@ -1,6 +1,7 @@
 package nodemgr
 
 import (
+	"errors"
 	"fmt"
 	"github.com/heyuhang0/DSCProject/pkg/consistent"
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
@@ -84,6 +85,16 @@ func NewManager(numVNodes int) *Manager {
 		internalPool: make(map[string]pb.KeyValueStoreInternalClient),
 		timers:       make(map[uint64]*time.Timer),
 	}
+}
+
+func (m *Manager) GetNodeInfo(nodeId uint64) (*NodeInfo, error){
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	infoMap, ok := m.nodes[nodeId]
+	if !ok{
+		return nil, errors.New("node is not found in node manager")
+	}
+	return infoMap, nil
 }
 
 func (m *Manager) doUpdateNode(node *NodeInfo) {
@@ -208,5 +219,6 @@ func (m *Manager) GetInternalClient(nodeID uint64) (pb.KeyValueStoreInternalClie
 
 	client := pb.NewKeyValueStoreInternalClient(conn)
 	m.internalPool[nodeInfo.InternalAddress] = client
+	log.Printf("Connection to node %v has established", nodeID)
 	return client, nil
 }

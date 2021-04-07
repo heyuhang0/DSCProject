@@ -13,6 +13,7 @@ service KeyValueStore {
 service KeyValueStoreInternal {
   rpc PutRep (PutRepRequest) returns (PutRepResponse) {}
   rpc GetRep (GetRepRequest) returns (GetRepResponse) {}
+  rpc HeartBeat (HeartBeatRequest) returns (HeartBeatResponse) {}
 }
 
 enum SuccessStatus{
@@ -86,5 +87,17 @@ message GetRingRequest {}
 
 message GetRingResponse {
   int64 numVNodes = 1;
+  map<uint64, NodeInfo> nodes = 2;
+}
+
+message HeartBeatRequest{
+  uint64  id = 1;
+  string  internalAddress = 3;
+  string  externalAddress = 4;
+  int64   version = 5;
+}
+
+message HeartBeatResponse {
+  uint64 id = 1;
   map<uint64, NodeInfo> nodes = 2;
 }

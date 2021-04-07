@@ -5,6 +5,7 @@
   "NumWrite": 3,
   "NumVirtualNodes": 10,
   "Timeout": 500,
+  "SeedServerIds": [5001, 5002, 5003],
   "Servers": [
     {
       "Id": 5001,
@@ -26,20 +27,6 @@
       "IpExternal": "localhost",
       "PortInternal": 5003,
       "PortExternal": 6003
-    },
-    {
-      "Id": 5004,
-      "IpInternal": "localhost",
-      "IpExternal": "localhost",
-      "PortInternal": 5004,
-      "PortExternal": 6004
-    },
-    {
-      "Id": 5005,
-      "IpInternal": "localhost",
-      "IpExternal": "localhost",
-      "PortInternal": 5005,
-      "PortExternal": 6005
     }
   ]
 }

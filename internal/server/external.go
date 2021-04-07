@@ -257,4 +257,3 @@ func (s *server) GetRing(ctx context.Context, req *pb.GetRingRequest) (*pb.GetRi
 		Nodes:     s.nodes.ExportHistory(),
 	}, nil
 }
-

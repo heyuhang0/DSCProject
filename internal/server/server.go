@@ -14,7 +14,8 @@ type server struct {
 	pb.UnimplementedKeyValueStoreServer
 	pb.UnimplementedKeyValueStoreInternalServer
 
-	id uint64
+	id           uint64
+	seedServerId []uint64
 
 	numRead    int
 	numWrite   int
@@ -28,7 +29,7 @@ type server struct {
 }
 
 // create a new server
-func NewServer(id uint64, numReplica, numRead, numWrite, numVNodes int, timeout time.Duration, nodes *nodemgr.Manager, db *leveldb.DB) *server {
+func NewServer(id uint64, seedServerId []uint64, numReplica, numRead, numWrite, numVNodes int, timeout time.Duration, nodes *nodemgr.Manager, db *leveldb.DB) *server {
 	vectorClock := vc.NewVectorClock(int(id))
 	vcKey := []byte("vc")
 	vcBytes, err := db.Get(vcKey, nil) // get vectorclock
@@ -41,15 +42,16 @@ func NewServer(id uint64, numReplica, numRead, numWrite, numVNodes int, timeout 
 		vectorClock.Vclock = v
 	}
 	return &server{
-		id:          id,
-		numReplica:  numReplica,
-		numRead:     numRead,
-		numWrite:    numWrite,
-		numVNodes:   numVNodes,
-		timeout:     timeout,
-		nodes:       nodes,
-		db:          db,
-		vectorClock: vectorClock,
+		id:           id,
+		seedServerId: seedServerId,
+		numReplica:   numReplica,
+		numRead:      numRead,
+		numWrite:     numWrite,
+		numVNodes:    numVNodes,
+		timeout:      timeout,
+		nodes:        nodes,
+		db:           db,
+		vectorClock:  vectorClock,
 	}
 }
 

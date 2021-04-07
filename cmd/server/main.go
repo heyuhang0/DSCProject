@@ -32,13 +32,22 @@ type Configuration struct {
 	NumWrite        int
 	NumVirtualNodes int
 	Timeout         int
+	SeedServerIds   []uint64
 	Servers         []*ServerConfig
 }
 
 func main() {
 	// parse arguments
-	serverIdx := flag.Int("index", 1, "server index")
 	serverConfig := flag.String("config", "./configs/default_config.json", "config file path")
+	// seed server
+	ifSeedSever := flag.Bool("seed", false, "whether the node is seed server")
+	serverIdx := flag.Int("index", 1, "server index")
+	// normal server
+	nodeIdNormal := flag.Uint64("id", 0, "id of the server")
+	internalAddressNormal := flag.String("internalAddr", "", "internal address of the server")
+	externalAddressNormal := flag.String("externalAddr", "", "external address of the server")
+
+
 	flag.Parse()
 	if flag.NArg() > 0 {
 		flag.Usage()
@@ -68,13 +77,37 @@ func main() {
 	servers := config.Servers
 	numVNodes := config.NumVirtualNodes
 	timeout := time.Millisecond * time.Duration(config.Timeout)
+	seedServerIds := config.SeedServerIds
 
 	if *serverIdx <= 0 || *serverIdx > numServer {
 		log.Fatalf("Server index %v out of range [1, %v]", *serverIdx, numServer)
 	}
 
-	localServer := servers[*serverIdx-1]
-	nodeId := localServer.Id
+	log.Printf("id: %v, interAdd: %v, externalAddr: %v", *nodeIdNormal, *internalAddressNormal, *externalAddressNormal)
+	log.Printf("seedserver %v", *ifSeedSever)
+	var nodeId uint64
+	var internalAddress string
+	var externalAddress string
+	if !*ifSeedSever{
+		nodeId = *nodeIdNormal
+		internalAddress = *internalAddressNormal
+		externalAddress = *externalAddressNormal
+		if nodeId == 0 || internalAddress == "" || externalAddress == ""{
+			log.Fatal("Please provide correct argument for normal server")
+		}
+		myConfig := ServerConfig{
+			Id: nodeId,
+			IpInternal: internalAddress,
+			IpExternal: externalAddress,
+		}
+		servers = append(servers, &myConfig)
+	}
+	if *ifSeedSever{
+		localServer := servers[*serverIdx-1]
+		nodeId = localServer.Id
+		internalAddress = localServer.IpInternal + ":" + strconv.Itoa(localServer.PortInternal)
+		externalAddress = localServer.IpExternal + ":" + strconv.Itoa(localServer.PortExternal)
+	}
 
 	// creating server
 	log.Printf("=== Server %v Starting to create server ===\n", nodeId)
@@ -89,32 +122,34 @@ func main() {
 	// create node manager
 	nodeManager := nodemgr.NewManager(numVNodes)
 	for _, nodeConfig := range servers {
+		alive := false
+		if nodeConfig.Id == nodeId {
+			alive = true
+		}
 		nodeManager.UpdateNode(&nodemgr.NodeInfo{
 			ID:              nodeConfig.Id,
-			Alive:           true,
+			Alive:           alive,
 			InternalAddress: fmt.Sprintf("%v:%v", nodeConfig.IpInternal, nodeConfig.PortInternal),
 			ExternalAddress: fmt.Sprintf("%v:%v", nodeConfig.IpExternal, nodeConfig.PortExternal),
 			Version:         time.Now().UnixNano(),
 		})
 	}
-	ringVisualAddr := fmt.Sprintf("127.0.0.1:%d", 8000 + *serverIdx)
+	ringVisualAddr := fmt.Sprintf("127.0.0.1:%d", 8000+*serverIdx)
 	go func() {
 		log.Fatal(nodeManager.ServeDashboard(ringVisualAddr))
 	}()
 	log.Printf("View consistent hashing ring on http://%v/", ringVisualAddr)
 
 	// create server instance
-	newServer := server.NewServer(nodeId, numReplica, numRead, numWrite, numVNodes, timeout, nodeManager, db)
+	newServer := server.NewServer(nodeId, seedServerIds, numReplica, numRead, numWrite, numVNodes, timeout, nodeManager, db)
 
 	// listen to external and internal ports
-	internalAddress := localServer.IpInternal + ":" + strconv.Itoa(localServer.PortInternal)
 	lisInternal, err := net.Listen("tcp", internalAddress)
 	log.Printf("Listening internal address: %v\n", internalAddress)
 	if err != nil {
 		log.Fatalf("Failed to listen to internal address %v: %v", internalAddress, err)
 	}
 
-	externalAddress := localServer.IpExternal + ":" + strconv.Itoa(localServer.PortExternal)
 	lisExternal, err := net.Listen("tcp", externalAddress)
 	log.Printf("Listening external address: %v", externalAddress)
 	if err != nil {
@@ -149,6 +184,12 @@ func main() {
 	}()
 	log.Printf("=== Finished setting server %v ===\n", nodeId)
 
+	go func() {
+		for{
+			newServer.SendHeartBeat()
+			time.Sleep(5 * time.Second)
+		}
+	}()
 	// sleep forever
 	select {}
 }
