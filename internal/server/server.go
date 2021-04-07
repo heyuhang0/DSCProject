@@ -7,6 +7,7 @@ import (
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
 	"github.com/heyuhang0/DSCProject/pkg/vc"
 	"github.com/syndtr/goleveldb/leveldb"
+	"log"
 	"time"
 )
 
@@ -41,6 +42,7 @@ func NewServer(id uint64, seedServerId []uint64, numReplica, numRead, numWrite, 
 		dec.Decode(&v)
 		vectorClock.Vclock = v
 	}
+	log.Println("Initialize the vector clock:", vectorClock.Vclock)
 	return &server{
 		id:           id,
 		seedServerId: seedServerId,
