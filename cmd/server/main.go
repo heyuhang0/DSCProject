@@ -26,14 +26,12 @@ type ServerConfig struct {
 }
 
 type Configuration struct {
-	NumServer       int
 	NumReplica      int
 	NumRead         int
 	NumWrite        int
 	NumVirtualNodes int
 	Timeout         int
-	SeedServerIds   []uint64
-	Servers         []*ServerConfig
+	SeedServers     []*ServerConfig
 }
 
 func main() {
@@ -69,20 +67,19 @@ func main() {
 		log.Fatal(err)
 	}
 
-	numServer := config.NumServer
 	numRead := config.NumRead
 	numWrite := config.NumWrite
 	numReplica := config.NumReplica
-	servers := config.Servers
 	numVNodes := config.NumVirtualNodes
 	timeout := time.Millisecond * time.Duration(config.Timeout)
-	seedServerIds := config.SeedServerIds
 
-	if *serverIdx <= 0 || *serverIdx > numServer {
-		log.Fatalf("Server index %v out of range [1, %v]", *serverIdx, numServer)
+	seedServers := config.SeedServers
+	seedServerIds := make([]uint64, len(seedServers))
+	for i, seedServer := range seedServers {
+		seedServerIds[i] = seedServer.Id
 	}
 
-	log.Printf("id: %v, interAdd: %v, externalAddr: %v", *nodeIdNormal, *internalAddressNormal, *externalAddressNormal)
+	log.Printf("id: %v, internalAddr: %v, externalAddr: %v", *nodeIdNormal, *internalAddressNormal, *externalAddressNormal)
 	log.Printf("seedserver %v", *ifSeedSever)
 	var nodeId uint64
 	var internalAddress string
@@ -96,7 +93,10 @@ func main() {
 		}
 	}
 	if *ifSeedSever {
-		localServer := servers[*serverIdx-1]
+		if *serverIdx <= 0 || *serverIdx > len(seedServers) {
+			log.Fatalf("Server index %v out of range [1, %v]", *serverIdx, len(seedServers))
+		}
+		localServer := seedServers[*serverIdx-1]
 		nodeId = localServer.Id
 		internalAddress = localServer.IpInternal + ":" + strconv.Itoa(localServer.PortInternal)
 		externalAddress = localServer.IpExternal + ":" + strconv.Itoa(localServer.PortExternal)
@@ -114,7 +114,7 @@ func main() {
 
 	// create node manager
 	nodeManager := nodemgr.NewManager(numVNodes)
-	for _, nodeConfig := range servers {
+	for _, nodeConfig := range seedServers {
 		alive := false
 		if nodeConfig.Id == nodeId {
 			alive = true

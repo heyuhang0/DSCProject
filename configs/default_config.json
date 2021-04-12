@@ -1,12 +1,10 @@
 {
-  "NumServer": 5,
-  "NumReplica":4,
+  "NumReplica": 4,
   "NumRead": 3,
   "NumWrite": 3,
   "NumVirtualNodes": 10,
   "Timeout": 500,
-  "SeedServerIds": [5001, 5002, 5003],
-  "Servers": [
+  "SeedServers": [
     {
       "Id": 5001,
       "IpInternal": "localhost",
