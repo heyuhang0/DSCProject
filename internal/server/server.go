@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/gob"
+	"github.com/heyuhang0/DSCProject/internal/keyedmutex"
 	"github.com/heyuhang0/DSCProject/internal/nodemgr"
 	pb "github.com/heyuhang0/DSCProject/pkg/dto"
 	"github.com/heyuhang0/DSCProject/pkg/vc"
@@ -27,6 +28,8 @@ type server struct {
 	nodes       *nodemgr.Manager
 	db          *leveldb.DB
 	vectorClock *vc.VectorClock
+
+	putMutex keyedmutex.KeyedMutex
 }
 
 // create a new server
@@ -54,6 +57,7 @@ func NewServer(id uint64, seedServerId []uint64, numReplica, numRead, numWrite, 
 		nodes:        nodes,
 		db:           db,
 		vectorClock:  vectorClock,
+		putMutex:     make(keyedmutex.KeyedMutex, 128),
 	}
 }
 
