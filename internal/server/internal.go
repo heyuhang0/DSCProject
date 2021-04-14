@@ -36,10 +36,11 @@ func (s *server) doGetRep(key []byte) (*pb.VersionedData, bool, error) {
 
 
 func (s *server) doPutRep(key []byte, value *pb.VersionedData) error {
-	// get old value to check version
+	// lock to ensure atomicity
 	s.putMutex.Lock(key)
 	defer s.putMutex.Unlock(key)
 
+	// get old value to check version
 	oldValue, found, err := s.doGetRep(key)
 	if err != nil {
 		return err
@@ -51,6 +52,7 @@ func (s *server) doPutRep(key []byte, value *pb.VersionedData) error {
 		if err != nil {
 			return err
 		}
+		// do put value into database
 		err = s.db.Put(realKey, dataBytes, nil)
 		if err != nil {
 			return err
