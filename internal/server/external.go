@@ -33,6 +33,24 @@ func allSame(data []*pb.VersionedData) bool {
 	return true
 }
 
+func newerVectorClockInGlobalOrder(existing *pb.VectorClock, incoming *pb.VectorClock) bool {
+	// incoming version is newer iff
+	// 1. every element in the old version exists in the incoming version, and
+	// 2. the value of the incoming version >= old version
+	// 3. at least one value > old version
+	newer := false
+	for i, val := range existing.Vclock {
+		comingVal, ok := incoming.Vclock[i]
+		if !ok || comingVal < val {
+			newer = false
+			break
+		} else if comingVal > val {
+			newer = true
+		}
+	}
+	return newer
+}
+
 func getLatest(dataSlice []*pb.VersionedData) *pb.VersionedData {
 	if len(dataSlice) == 0 {
 		return nil
@@ -40,24 +58,7 @@ func getLatest(dataSlice []*pb.VersionedData) *pb.VersionedData {
 
 	latest := dataSlice[0]
 	for _, data := range dataSlice {
-		// incoming version is newer iff
-		// 1. every element in the old version exists in the incoming version, and
-		// 2. the value of the incoming version >= old version
-		// 3. at least one value > old version
-		latestVersion := latest.Version.Vclock
-		currVersion := data.Version.Vclock
-		newer := false
-
-		for i, val := range latestVersion {
-			comingVal, ok := currVersion[i]
-			if !ok || comingVal < val {
-				newer = false
-				break
-			} else if comingVal > val {
-				newer = true
-			}
-		}
-		if newer {
+		if newerVectorClockInGlobalOrder(latest.Version, data.Version) {
 			latest = data
 		}
 	}
