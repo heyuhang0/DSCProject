@@ -1,113 +1,122 @@
 # 50.041 Course Project
 
-- cmd
-  - client
-  - server
+## Setup
 
-- internal
-
-  Files for this project only.
-  - server
-
-- pkg
-
-  Packages used in this project
-----
-## Interactive Shell
-### Features
-1. GET
-2. PUT
-3. GET-NODE
-4. PUT-NODE
-5. Request Per Second
-6. Latency Percentile
-
-### Getting Started
-
-**Build & Start up all the servers**
 ```shell
-go build -o server-main cmd/server/main.go
-./server-main n  # where n is the server number
+# Clone project
+git clone https://github.com/heyuhang0/DSCProject.git
+cd DSCProject
+
+# Install dependencies
+go mod vendor
 ```
-**Build & Start up client**
+
+## Run Instructions
+
+### Seed server
+
+Seed servers are known to clients and all machines in the cluster.
+At least one seed server is required to launch the cluster, which is for
+node discovery and fault detection in addition to data storage.
+With the default cluster configuration `./configs/default_config.json`,
+3 seed servers are configured.
+
+Please run the following commands in separated terminals to launch seed servers:
+
 ```shell
-go build -o client cmd/client/main.go
-./client
+go run ./cmd/server -config ./configs/default_config.json -seed -index 1
+go run ./cmd/server -config ./configs/default_config.json -seed -index 2
+go run ./cmd/server -config ./configs/default_config.json -seed -index 3
 ```
 
-#### GET
-**Description: For Client to send a GET request to Server**
-```
-Input Argument:
-1. Key (type string)
+After launching, you can view their dashboards with address http://127.0.0.1:8001/,
+http://127.0.0.1:8002/, http://127.0.0.1:8003/.
 
-Expected Response: 
-key: value
-```
-```
-command: get <key>
-example: get hello
+![Screenshot of the dashboard page](https://user-images.githubusercontent.com/10456378/115833776-0779fb00-a447-11eb-8854-eb6d08ad620e.jpeg)
+
+### Normal server
+
+Normal servers are optional data nodes that can be added on demand. With the
+default configuration, at least one normal server is needed to fulfill the
+4 replicas requirements.
+
+Use the following commands to launch normal servers in separated terminals:
+
+```shell
+go run ./cmd/server -config ./configs/default_config.json -index 4 -id 5004 -internalAddr localhost:5004 -externalAddr localhost:6004
+go run ./cmd/server -config ./configs/default_config.json -index 5 -id 5005 -internalAddr localhost:5005 -externalAddr localhost:6005
+...
 ```
 
-#### PUT
-**Description: For Client to send a PUT request to Server**
-```
-Input Argument:
-1. Key (type string)
-2. Value (type string)
+View their dashboards with address http://127.0.0.1:8004/, http://127.0.0.1:8005/.
 
-Expected Response: 
+### CLI client
+
+The CLI client is an interactive tool for debugging and testing the database.
+You can launch it with the following command:
+
+```shell
+go run ./cmd/client -config ./configs/default_client.json
+```
+
+Following commands are provided in the CLI client:
+```
+# put <key> <value>
+$ put hello world
 OK
-```
-```bash
-command: put <key> <value>
-example: put hello prof
+
+# get <key>
+$ get hello
+hello: world
+
+# benchmark <num_requests> <num_goroutines>
+$ benchmark 1000 16
+PUT
+  - RPS:           2919.1957849148225 req/s
+  - Avg Latency:   5.135980099999996 ms
+  - 90% Latency:   11.0326 ms
+  - 99% Latency:   13.9993 ms
+  - 99.9% Latency: 14.0022 ms
+Get
+  - RPS:           2985.0790822075855 req/s
+  - Avg Latency:   5.0290164000000015 ms
+  - 90% Latency:   11.9985 ms
+  - 99% Latency:   14.0007 ms
+  - 99.9% Latency: 15.50005 ms
 ```
 
-#### GET-NODE
-**Description: For Client to send a GET request to a specific Server**
+For debugging, to specify a coordinator, use following commands:
 ```
-Input Argument:
-1. Address of Server (type string) i.e localhost:6001
-2. Key (type string)
+# put-node <address> <key> <value>
+$ put-node localhost:6001 hello world
+=== PUT Request is called! ===
+2021/04/23 15:10:52 PUT SUCCESSFUL: {hello: world}
 
-Expected Response: 
-GET SUCCESSFUL, {key, value}
-```
-```bash
-command: get-node <address> <key>
-example: get-node localhost:6001 hello
-```
+# put-node <address> <key>
+$ get-node localhost:6001 hello
+=== GET Request is called! ===
+GET SUCCESSFUL: hello world
 
-#### PUT-NODE
-**Description: For Client to send a PUT request to a specific Server**
-```
-Input Argument:
-1. Address of Server (type string) i.e localhost:50051,
-2. Key (type string)
-3. Value (type string)
+# rps <address> <key> <num_requests>
+$ rps localhost:6001 hello 1000
+Number of Requests Per Second: 1179.5094208007195
 
-Expected Response: 
-PUT SUCCESSFUL, {key, value}
-```
-```bash
-command: put-node <address> <key> <value>
-example: put-node localhost:6001 hello prof
+# latencytime <address> <key> <num_requests> <percentile>
+$ latencytime localhost:6001 hello 1000 99
+99 th percentile latency: 0.0011612
 ```
 
-#### Request Per Second
-```bash
-rps localhost:6001 hello 1000
+### Sample use case: COVID-19 tracing application
+
+*The sample tracing application is for the demonstration
+purpose of this school project only. It is not intended
+to simulate any real-world application.*
+
+To launch the safe entry server, run
+```shell
+go run ./cmd/safeentry -address :8080 -config ./configs/default_client.json
 ```
 
-#### Latency Percentile
+Then you can visit the sample tracing application at http://localhost:8080/
 
-Input Argument:
-1. address
-2. key
-3. no_requests
-4. percentile
-
-```bash
-latencytime localhost:6001 hello 1000 99
-```
+![screenshot of the use case](https://user-images.githubusercontent.com/10456378/115834902-4a889e00-a448-11eb-8704-6f6f27ca84e2.png)
